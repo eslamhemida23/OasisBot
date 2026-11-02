@@ -1,0 +1,60 @@
+name: Build Chat and Python plugins
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Apply chat event source patch
+        shell: pwsh
+        run: |
+          if (!(Test-Path "chat_event_patch.zip")) {
+            throw "chat_event_patch.zip is missing from the repository root. Upload it first."
+          }
+          $patchDir = Join-Path $env:RUNNER_TEMP "chat-event-patch"
+          Expand-Archive -Path "chat_event_patch.zip" -DestinationPath $patchDir -Force
+          Copy-Item "$patchDir/Plugins/RSBot.Chat/Bundle/Network/ChatResponse.cs" "Plugins/RSBot.Chat/Bundle/Network/ChatResponse.cs" -Force
+          Copy-Item "$patchDir/Plugins/RSBot.Python/Views/Main.cs" "Plugins/RSBot.Python/Views/Main.cs" -Force
+
+      - name: Build RSBot.Chat
+        run: msbuild Plugins/RSBot.Chat/RSBot.Chat.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+
+      - name: Build RSBot.Python
+        run: msbuild Plugins/RSBot.Python/RSBot.Python.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+
+      - name: Verify output DLLs
+        shell: pwsh
+        run: |
+          $chat = "Build/Data/Plugins/RSBot.Chat.dll"
+          $python = "Build/Data/Plugins/RSBot.Python.dll"
+          if (!(Test-Path $chat)) { throw "Missing build output: $chat" }
+          if (!(Test-Path $python)) { throw "Missing build output: $python" }
+          Get-Item $chat, $python | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
+
+      - name: Upload compiled DLLs
+        uses: actions/upload-artifact@v4
+        with:
+          name: OasisBot-Chat-Python-DLLs
+          path: |
+            Build/Data/Plugins/RSBot.Chat.dll
+            Build/Data/Plugins/RSBot.Python.dll
+          if-no-files-found: error
+          retention-days: 7
