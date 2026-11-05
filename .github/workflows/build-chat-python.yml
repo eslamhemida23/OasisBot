@@ -1,6 +1,9 @@
 name: Build Chat and Python plugins
 
 on:
+  push:
+    branches:
+      - feature/python-api-expansion
   workflow_dispatch:
 
 permissions:
@@ -22,17 +25,6 @@ jobs:
 
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
-
-      - name: Apply chat event source patch
-        shell: pwsh
-        run: |
-          if (!(Test-Path "chat_event_patch.zip")) {
-            throw "chat_event_patch.zip is missing from the repository root. Upload it first."
-          }
-          $patchDir = Join-Path $env:RUNNER_TEMP "chat-event-patch"
-          Expand-Archive -Path "chat_event_patch.zip" -DestinationPath $patchDir -Force
-          Copy-Item "$patchDir/Plugins/RSBot.Chat/Bundle/Network/ChatResponse.cs" "Plugins/RSBot.Chat/Bundle/Network/ChatResponse.cs" -Force
-          Copy-Item "$patchDir/Plugins/RSBot.Python/Views/Main.cs" "Plugins/RSBot.Python/Views/Main.cs" -Force
 
       - name: Build RSBot.Chat
         run: msbuild Plugins/RSBot.Chat/RSBot.Chat.csproj /restore /m /p:Configuration=Release /p:Platform=x86
