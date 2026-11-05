@@ -15,7 +15,7 @@ public class ChatAPI : IPythonPlugin
 
     public bool send_message(int channel, string message, string receiver = null)
     {
-        if (Game.Player == null || string.IsNullOrWhiteSpace(message))
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true || string.IsNullOrWhiteSpace(message))
             return false;
 
         var type = (ChatType)channel;
