@@ -4,12 +4,18 @@
     <UseWindowsForms>true</UseWindowsForms>
     <PlatformTarget>x86</PlatformTarget>
     <Nullable>disable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <OutputType>Library</OutputType>
     <AssemblyName>RSBot.XControl</AssemblyName>
     <RootNamespace>RSBot.XControl</RootNamespace>
+    <OutputPath>.\..\..\Build\Data\Plugins</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Description>Native C# party command controller for OasisBot</Description>
+    <RepositoryUrl>https://github.com/eslamhemida23/OasisBot</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\Library\RSBot.Core\RSBot.Core.csproj" />
+    <ProjectReference Include="..\RSBot.Chat\RSBot.Chat.csproj" />
   </ItemGroup>
 </Project>
