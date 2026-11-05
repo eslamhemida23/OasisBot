@@ -6,6 +6,7 @@ using RSBot.Core;
 using RSBot.Core.Components;
 using RSBot.Core.Extensions;
 using RSBot.Core.Objects;
+using RSBot.Core.Objects.Cos;
 using RSBot.Core.Objects.Party;
 using RSBot.Core.Objects.Skill;
 using RSBot.Core.Objects.Spawn;
