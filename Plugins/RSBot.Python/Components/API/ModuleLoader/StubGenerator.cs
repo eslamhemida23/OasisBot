@@ -76,6 +76,10 @@ namespace RSBot.Python.Components.API.ModuleLoader
                         sb.AppendLine($"    def {method.Name}({paramList}) -> {returnType}: ...");
                     }
                 }
+
+                if (pluginName == "gui")
+                    sb.AppendLine("    GUI: type");
+
                 sb.AppendLine();
             }
 
