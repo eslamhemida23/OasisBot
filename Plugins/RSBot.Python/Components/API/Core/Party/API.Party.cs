@@ -13,6 +13,45 @@ public class PartyAPI : IPythonPlugin
 
     public void Init(RSBot.Python.Views.Main main) { }
 
+    public PyList get_members()
+    {
+        using (Py.GIL())
+        {
+            var result = new PyList();
+            if (Game.Player == null || !Game.Party.IsInParty || Game.Party.Members == null)
+                return result;
+
+            foreach (var member in Game.Party.Members)
+            {
+                if (member == null)
+                    continue;
+
+                var item = new PyDict();
+                item.SetItem("uid", new PyInt(member.MemberId));
+                item.SetItem("player_id", new PyInt(member.Player?.UniqueId ?? 0));
+                item.SetItem("name", new PyString(member.Name ?? string.Empty));
+                item.SetItem("level", new PyInt(member.Level));
+                item.SetItem("guild", new PyString(member.Guild ?? string.Empty));
+
+                var encodedHpMp = member.HealthMana.ToString("X2");
+                var hpPercentage = Convert.ToByte(encodedHpMp[0].ToString(), 16) * 10;
+                var mpPercentage = Convert.ToByte(encodedHpMp[1].ToString(), 16) * 10;
+                item.SetItem("hp_percentage", new PyInt(hpPercentage));
+                item.SetItem("mp_percentage", new PyInt(mpPercentage));
+
+                item.SetItem("x", new PyFloat(member.Player?.Position.X ?? 0));
+                item.SetItem("y", new PyFloat(member.Player?.Position.Y ?? 0));
+                item.SetItem("z", new PyFloat(member.Player?.Position.ZOffset ?? 0));
+                item.SetItem("region", new PyInt(member.Player?.Position.Region.Id ?? 0));
+                item.SetItem("distance", new PyFloat(member.Player?.DistanceToPlayer ?? -1));
+
+                result.Append(item);
+            }
+
+            return result;
+        }
+    }
+
     public bool is_in_party()
     {
         return Game.Player != null && Game.Party.IsInParty;
