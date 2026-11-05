@@ -247,6 +247,15 @@ namespace RSBot.Python.Components.API.Core.Entity
                 );
                 result.SetItem(new PyString("hp"), new PyInt(Game.Player.Health));
                 result.SetItem(new PyString("mp"), new PyInt(Game.Player.Mana));
+                result.SetItem(
+                    new PyString("hp_percentage"),
+                    new PyInt(Game.Player.MaximumHealth <= 0 ? 0 : Math.Clamp((int)Math.Round(Game.Player.Health * 100d / Game.Player.MaximumHealth), 0, 100))
+                );
+                result.SetItem(
+                    new PyString("mp_percentage"),
+                    new PyInt(Game.Player.MaximumMana <= 0 ? 0 : Math.Clamp((int)Math.Round(Game.Player.Mana * 100d / Game.Player.MaximumMana), 0, 100))
+                );
+                result.SetItem(new PyString("is_dead"), new PyBool(Game.Player.State.LifeState == LifeState.Dead));
                 result.SetItem(new PyString("max_hp"), new PyInt(Game.Player.MaximumHealth));
                 result.SetItem(new PyString("max_mp"), new PyInt(Game.Player.MaximumMana));
                 result.SetItem(new PyString("exp"), new PyInt(Game.Player.Experience));
@@ -379,6 +388,99 @@ namespace RSBot.Python.Components.API.Core.Entity
                 }
                 return result;
             }
+        }
+
+        private PyList GetPortals()
+        {
+            using (Py.GIL())
+            {
+                var result = new PyList();
+                if (Game.Player == null)
+                    return result;
+
+                if (!SpawnManager.TryGetEntities<SpawnedPortal>(out var portals))
+                    return result;
+
+                foreach (var portal in portals)
+                {
+                    if (portal == null)
+                        continue;
+
+                    var item = new PyDict();
+                    item.SetItem("uid", new PyInt(portal.UniqueId));
+                    item.SetItem("model", new PyInt(portal.Id));
+                    item.SetItem("servername", new PyString(portal.Record?.CodeName ?? string.Empty));
+                    item.SetItem("name", new PyString(portal.Record?.GetRealName() ?? string.Empty));
+                    item.SetItem("x", new PyFloat(portal.Position.X));
+                    item.SetItem("y", new PyFloat(portal.Position.Y));
+                    item.SetItem("z", new PyFloat(portal.Position.ZOffset));
+                    item.SetItem("region", new PyInt(portal.Position.Region.Id));
+                    item.SetItem("link_count", new PyInt(portal.Links?.Count ?? 0));
+                    result.Append(item);
+                }
+
+                return result;
+            }
+        }
+
+        private PyDict GetEntityById(uint uniqueId)
+        {
+            using (Py.GIL())
+            {
+                var result = new PyDict();
+                if (Game.Player == null || uniqueId == 0 ||
+                    !SpawnManager.TryGetEntityIncludingMe(uniqueId, out var entity))
+                {
+                    result.SetItem("found", new PyBool(false));
+                    return result;
+                }
+
+                var type =
+                    entity is SpawnedPlayer ? "player" :
+                    entity is SpawnedMonster ? "monster" :
+                    entity is SpawnedPortal ? "portal" :
+                    entity is SpawnedNpc ? "npc" :
+                    entity is Cos ? "pet" :
+                    "entity";
+
+                var name =
+                    entity is SpawnedPlayer spawnedPlayer ? spawnedPlayer.Name :
+                    entity is Cos cos ? cos.Name :
+                    entity.Record?.GetRealName() ?? string.Empty;
+
+                result.SetItem("found", new PyBool(true));
+                result.SetItem("uid", new PyInt(entity.UniqueId));
+                result.SetItem("model", new PyInt(entity.Id));
+                result.SetItem("type", new PyString(type));
+                result.SetItem("name", new PyString(name ?? string.Empty));
+                result.SetItem("servername", new PyString(entity.Record?.CodeName ?? string.Empty));
+                result.SetItem("x", new PyFloat(entity.Position.X));
+                result.SetItem("y", new PyFloat(entity.Position.Y));
+                result.SetItem("z", new PyFloat(entity.Position.ZOffset));
+                result.SetItem("region", new PyInt(entity.Position.Region.Id));
+
+                if (entity is SpawnedBionic bionic)
+                    result.SetItem("hp", new PyInt(bionic.Health));
+                else if (entity is Cos pet)
+                    result.SetItem("hp", new PyInt(pet.Health));
+
+                return result;
+            }
+        }
+
+        public PyList get_portals()
+        {
+            return GetPortals();
+        }
+
+        public PyDict get_entity_by_id(uint uniqueId)
+        {
+            return GetEntityById(uniqueId);
+        }
+
+        public bool is_dead()
+        {
+            return Game.Player == null || Game.Player.State.LifeState == LifeState.Dead;
         }
 
         public PyList get_monsters()
