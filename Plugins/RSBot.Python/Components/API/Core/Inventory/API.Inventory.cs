@@ -278,7 +278,7 @@ namespace RSBot.Python.Components.API.Core.Inventory
 
         public bool move_item(int sourceSlot, int destinationSlot, int amount = 0)
         {
-            if (Game.Player == null ||
+            if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true ||
                 sourceSlot < 0 || sourceSlot > byte.MaxValue ||
                 destinationSlot < 0 || destinationSlot > byte.MaxValue ||
                 amount < 0 || amount > ushort.MaxValue)
