@@ -78,6 +78,14 @@ public partial class Main : DoubleBufferedControl
         };
     }
 
+    public void DispatchPythonEvent(string eventName, params object[] args)
+    {
+        if (string.IsNullOrWhiteSpace(eventName))
+            return;
+
+        _pyPlugins.CallPluginEvent(eventName, AppendLog, args);
+    }
+
     public void AppendLog(string text)
     {
         if (InvokeRequired)
