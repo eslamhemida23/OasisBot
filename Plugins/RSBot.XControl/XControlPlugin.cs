@@ -214,6 +214,7 @@ namespace RSBot.XControl
         private static double _followDistance = 10;
         private static int _lastFollowTick;
         private static int _lastTick;
+        private static int _followMoveInProgress;
         private static uint _traceTargetId;
         private static PendingTeleport _pendingTeleport;
 
@@ -780,7 +781,25 @@ namespace RSBot.XControl
                 (float)destinationY,
                 new RSBot.Core.Objects.Region(leader.Region.Id));
 
-            Game.Player.MoveTo(destination, false);
+            if (System.Threading.Interlocked.CompareExchange(ref _followMoveInProgress, 1, 0) != 0)
+                return;
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    if (_followEnabled && Game.Player != null)
+                        Game.Player.MoveTo(destination, false);
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug("[xControl] Follow move failed: " + ex.Message);
+                }
+                finally
+                {
+                    System.Threading.Interlocked.Exchange(ref _followMoveInProgress, 0);
+                }
+            });
         }
 
         private static void RandomMovement(string args)
@@ -1115,9 +1134,14 @@ namespace RSBot.XControl
                 return false;
 
             StopFollow();
-            var ok = TeleportByEntity(source, destination.ID);
-            Log.Notify($"[xControl] Q{index} -> {destination.ZoneName}: {(ok ? "accepted" : "failed")}");
-            return ok;
+            var destinationId = destination.ID;
+            var destinationName = destination.ZoneName;
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                var ok = TeleportByEntity(source, destinationId);
+                Log.Notify($"[xControl] Q{index} -> {destinationName}: {(ok ? "accepted" : "failed")}");
+            });
+            return true;
         }
 
         private static RefTeleport FindTeleport(string name)
@@ -1182,9 +1206,15 @@ namespace RSBot.XControl
             }
 
             StopFollow();
-            var success = TeleportByEntity(source, destinationRef.ID);
-            Log.Notify("[xControl] TP " + sourceRef.CodeName + " -> " + destinationRef.ZoneName +
-                       (success ? " accepted." : " failed."));
+            var sourceCodeName = sourceRef.CodeName;
+            var destinationId = destinationRef.ID;
+            var destinationName = destinationRef.ZoneName;
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                var success = TeleportByEntity(source, destinationId);
+                Log.Notify("[xControl] TP " + sourceCodeName + " -> " + destinationName +
+                           (success ? " accepted." : " failed."));
+            });
         }
 
         private static bool TeleportByEntity(SpawnedBionic source, uint destinationId)
@@ -1246,9 +1276,12 @@ namespace RSBot.XControl
             }
 
             StopFollow();
-            var result = TeleportByEntity(source, destinationId);
-            Log.Notify("[xControl] Synced teleport from " + sender + ": " +
-                       (result ? "accepted" : "failed"));
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                var result = TeleportByEntity(source, destinationId);
+                Log.Notify("[xControl] Synced teleport from " + sender + ": " +
+                           (result ? "accepted" : "failed"));
+            });
         }
 
         // Called by the passive packet observers below.
