@@ -21,13 +21,13 @@ public partial class Main : DoubleBufferedControl
 {
     private readonly PythonRuntimeManager _pyRuntime = new();
     private readonly PythonPluginManager _pyPlugins = new();
-    private string projectDir = Directory.GetParent(Application.StartupPath).FullName;
+    private string projectDir = Application.StartupPath;
 
     public Main()
     {
         InitializeComponent();
         ModuleLoader.InitAll(this);
-        PythonRuntimeManager.GenerateStub(Directory.GetParent(Application.StartupPath).FullName);
+        PythonRuntimeManager.GenerateStub(projectDir);
         WireEvents();
         SubscribeEvents();
         InitPythonRuntime();
@@ -120,7 +120,6 @@ public partial class Main : DoubleBufferedControl
 
     private void RunPythonPlugin(string fileName)
     {
-        string projectDir = Directory.GetParent(Application.StartupPath).FullName;
         _pyPlugins.RunPlugin(projectDir, fileName, AppendLog);
     }
 
@@ -140,10 +139,6 @@ public partial class Main : DoubleBufferedControl
         }
         ResetPythonPlugins();
         ReloadPluginGrid();
-        string pluginFolder = Path.Combine(
-            Directory.GetParent(Application.StartupPath).Parent.Parent.FullName,
-            "Plugins"
-        );
     }
 
     #region events
