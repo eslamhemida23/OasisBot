@@ -69,7 +69,7 @@ public class PartyAPI : IPythonPlugin
 
     public bool leave_party()
     {
-        if (Game.Player == null || !Game.Party.IsInParty)
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true || !Game.Party.IsInParty)
             return false;
 
         Game.Party.Leave();
@@ -78,7 +78,7 @@ public class PartyAPI : IPythonPlugin
 
     public bool invite(uint playerUniqueId)
     {
-        if (Game.Player == null || playerUniqueId == 0)
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true || playerUniqueId == 0)
             return false;
 
         Game.Party.Invite(playerUniqueId);
@@ -87,7 +87,7 @@ public class PartyAPI : IPythonPlugin
 
     public bool invite_player(string playerName)
     {
-        if (Game.Player == null || string.IsNullOrWhiteSpace(playerName))
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true || string.IsNullOrWhiteSpace(playerName))
             return false;
 
         if (!SpawnManager.TryGetEntity<SpawnedPlayer>(
@@ -102,7 +102,7 @@ public class PartyAPI : IPythonPlugin
 
     public bool banish(string playerName)
     {
-        if (Game.Player == null || !Game.Party.IsLeader || string.IsNullOrWhiteSpace(playerName))
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true || !Game.Party.IsLeader || string.IsNullOrWhiteSpace(playerName))
             return false;
 
         var member = Game.Party.GetMemberByName(playerName);
