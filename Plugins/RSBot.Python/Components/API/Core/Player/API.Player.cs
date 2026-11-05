@@ -59,7 +59,7 @@ public class PlayerAPI : IPythonPlugin
 
     public bool move_to(float x, float y, ushort region, bool wait = false)
     {
-        if (Game.Player == null)
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true)
             return false;
 
         try
@@ -75,7 +75,8 @@ public class PlayerAPI : IPythonPlugin
 
     public bool start_trace(string playerName)
     {
-        if (Game.Player == null || string.IsNullOrWhiteSpace(playerName))
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true ||
+            string.IsNullOrWhiteSpace(playerName))
             return false;
 
         if (!SpawnManager.TryGetEntity<SpawnedPlayer>(
@@ -96,7 +97,8 @@ public class PlayerAPI : IPythonPlugin
 
     public bool stop_trace()
     {
-        if (Game.Player == null || _traceTargetId == 0)
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true ||
+            _traceTargetId == 0)
             return false;
 
         var packet = new Packet(0x7074);
@@ -112,22 +114,26 @@ public class PlayerAPI : IPythonPlugin
 
     public bool use_return_scroll()
     {
-        return Game.Player != null && Game.Player.UseReturnScroll();
+        return Game.Player != null && Kernel.Proxy?.IsConnectedToAgentserver == true &&
+            Game.Player.UseReturnScroll();
     }
 
     public bool use_hp_potion()
     {
-        return Game.Player != null && Game.Player.UseHealthPotion();
+        return Game.Player != null && Kernel.Proxy?.IsConnectedToAgentserver == true &&
+            Game.Player.UseHealthPotion();
     }
 
     public bool use_mp_potion()
     {
-        return Game.Player != null && Game.Player.UseManaPotion();
+        return Game.Player != null && Kernel.Proxy?.IsConnectedToAgentserver == true &&
+            Game.Player.UseManaPotion();
     }
 
     public bool use_berserk()
     {
-        if (Game.Player == null || !Game.Player.CanEnterBerzerk)
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true ||
+            !Game.Player.CanEnterBerzerk)
             return false;
 
         Game.Player.EnterBerzerkMode();
