@@ -7,6 +7,7 @@ using System.Windows.Forms;
 using Python.Runtime;
 using RSBot.Core.Event;
 using RSBot.Core.Network;
+using RSBot.Core.Objects;
 using RSBot.Python.Components.API.GUI;
 using RSBot.Python.Components.API.ModuleLoader;
 using RSBot.Python.Components.Loader;
@@ -39,6 +40,7 @@ public partial class Main : DoubleBufferedControl
         EventManager.SubscribeEvent("OnClientPacketReceive", OnClientPacketReceive);
         EventManager.SubscribeEvent("OnServerPacketReceive", OnServerPacketReceive);
         EventManager.SubscribeEvent("OnEnterGame", OnEnterGame);
+        EventManager.SubscribeEvent("OnMessageReceived", OnMessageReceived);
         EventManager.SubscribeEvent("OnAgentServerDisconnected", OnAgentServerDisconnected);
     }
 
@@ -139,11 +141,13 @@ public partial class Main : DoubleBufferedControl
     #region events
     private void OnTeleportStart()
     {
+        _pyPlugins.CallPluginEvent("on_teleport_start", AppendLog);
         _pyPlugins.CallPluginEvent("on_teleported", AppendLog, new PyInt(1));
     }
 
     private void OnTeleportComplete()
     {
+        _pyPlugins.CallPluginEvent("on_teleport_complete", AppendLog);
         _pyPlugins.CallPluginEvent("on_teleported", AppendLog, new PyInt(2));
     }
 
@@ -168,6 +172,11 @@ public partial class Main : DoubleBufferedControl
         _pyPlugins.CallPluginEvent("on_enter_game", AppendLog);
     }
 
+    private void OnMessageReceived(string message, string sender, ChatType type)
+    {
+        _pyPlugins.CallPluginEvent("on_chat_message", AppendLog, message, sender, (int)type);
+    }
+
     private void OnAgentServerDisconnected()
     {
         _pyPlugins.CallPluginEvent("on_disconnect", AppendLog);
@@ -178,6 +187,7 @@ public partial class Main : DoubleBufferedControl
         try
         {
             await Task.Run(() => _pyPlugins.CallPluginEvent("event_loop", AppendLog));
+            await Task.Run(() => _pyPlugins.CallPluginEvent("on_tick", AppendLog));
         }
         catch (Exception ex)
         {
