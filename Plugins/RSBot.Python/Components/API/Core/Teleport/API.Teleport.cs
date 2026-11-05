@@ -78,6 +78,7 @@ public class TeleportAPI : IPythonPlugin
     public bool teleport(string npcCodeName, uint destinationId, int timeoutMs = 30000)
     {
         if (Game.Player == null ||
+            Kernel.Proxy?.IsConnectedToAgentserver != true ||
             string.IsNullOrWhiteSpace(npcCodeName) ||
             destinationId == 0 ||
             timeoutMs < 1000 || timeoutMs > 120000)
