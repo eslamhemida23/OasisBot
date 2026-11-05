@@ -444,7 +444,17 @@ namespace RSBot.XControl
 
                 case "RE":
                 case "RETURN":
-                    RunPlayerAction("return scroll", () => Game.Player.UseReturnScroll());
+                    if (IsConnected && Game.Player.State.LifeState == LifeState.Dead)
+                    {
+                        var revivePacket = new Packet(0x3053);
+                        revivePacket.WriteByte(0x01);
+                        PacketManager.SendPacket(revivePacket, PacketDestination.Server);
+                        Log.Notify("[xControl] Resurrection at town requested.");
+                    }
+                    else
+                    {
+                        RunPlayerAction("return scroll", () => Game.Player.UseReturnScroll());
+                    }
                     break;
 
                 case "SIT":
