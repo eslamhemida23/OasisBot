@@ -14,6 +14,7 @@ from RSBot import (
     party,
     pets,
     chat,
+    packets,
     teleport,
     gui,
 )
@@ -85,6 +86,24 @@ pets.terminate("growth")
 
 Supported pet type strings for `terminate` are `growth`, `fellow`, `transport`, `job_transport`, `ability`, and `vehicle`. For `use_hp_potion`, the currently supported values are `growth`, `fellow`, `transport`, and `job_transport`.
 
+## Packets
+
+```python
+# A callback at module scope receives (opcode, direction, data_hex).
+def on_interesting_packet(opcode, direction, data_hex):
+    print(opcode, direction, data_hex)
+
+handler_id = packets.add_handler(0x3026, "server_to_client", "on_interesting_packet")
+# Remove one registration, or all registrations:
+packets.remove_handler(handler_id)
+packets.remove_all_handlers()
+
+# Send a raw payload encoded as hexadecimal bytes.
+packets.send_server_hex(0x7025, "01 01 00 48 69")
+```
+
+Packet directions are `client_to_server` and `server_to_client`. Registered handlers are passive observers: they receive the opcode, direction, and packet payload as hex, but cannot modify, replace, or suppress the original packet. For lower-level raw byte-array sending, the existing `core.send_server(opcode, data, encrypted)` and `core.send_client(opcode, data, encrypted)` methods remain available.
+
 ## Chat
 
 ```python
@@ -142,7 +161,7 @@ Define any callbacks your script needs at module level:
 | `on_teleport_start()` | none | Teleportation started |
 | `on_teleport_complete()` | none | Teleportation completed |
 | `on_teleported(state)` | `1` start, `2` complete | Backward-compatible teleport callback |
-| `on_chat_message(message, sender, chat_type)` | string, string, int | Parsed incoming/outgoing-self chat message |
+| `on_chat_message(message, sender, chat_type)` | string, string, int | Parsed chat response; self All/AllGM messages are also emitted |
 | `on_packet_from_client(opcode, data_hex)` | string, string | Packet observed from the game client |
 | `on_packet_from_server(opcode, data_hex)` | string, string | Packet observed from the server |
 | `event_loop()` | none | Existing Python timer callback |
