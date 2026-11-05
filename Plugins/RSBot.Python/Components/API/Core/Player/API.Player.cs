@@ -1,6 +1,7 @@
 using System;
 using Python.Runtime;
 using RSBot.Python.Components.API.Interface;
+using RSBot.Python.Components.API.Utils;
 using RSBot.Core;
 using RSBot.Core.Components;
 using RSBot.Core.Objects;
@@ -40,9 +41,9 @@ public class PlayerAPI : IPythonPlugin
             result.SetItem("max_mp", new PyInt(player.MaximumMana));
             result.SetItem("hp_percentage", new PyInt(Percentage(player.Health, player.MaximumHealth)));
             result.SetItem("mp_percentage", new PyInt(Percentage(player.Mana, player.MaximumMana)));
-            result.SetItem("is_dead", new PyBool(player.State.LifeState == LifeState.Dead));
-            result.SetItem("is_berzerking", new PyBool(player.Berzerking));
-            result.SetItem("can_berzerk", new PyBool(player.CanEnterBerzerk));
+            result.SetItem("is_dead", PythonBool.FromBoolean(player.State.LifeState == LifeState.Dead));
+            result.SetItem("is_berzerking", PythonBool.FromBoolean(player.Berzerking));
+            result.SetItem("can_berzerk", PythonBool.FromBoolean(player.CanEnterBerzerk));
             result.SetItem("level", new PyInt(player.Level));
             result.SetItem("x", new PyFloat(player.Position.X));
             result.SetItem("y", new PyFloat(player.Position.Y));
