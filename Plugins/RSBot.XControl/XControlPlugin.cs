@@ -91,11 +91,7 @@ namespace RSBot.XControl
                 Text = "Add the character allowed to send commands in Party chat."
             };
 
-            add.Click += (_, _) =>
-            {
-                if (XControlService.AddLeader(_leaderInput.Text))
-                    _leaderInput.Clear();
-            };
+            add.Click += (_, _) => XControlService.AddLeader(_leaderInput.Text);
 
             _leaderInput.KeyDown += (_, e) =>
             {
@@ -103,8 +99,7 @@ namespace RSBot.XControl
                     return;
 
                 e.SuppressKeyPress = true;
-                if (XControlService.AddLeader(_leaderInput.Text))
-                    _leaderInput.Clear();
+                XControlService.AddLeader(_leaderInput.Text);
             };
 
             Controls.Add(prompt);
@@ -129,6 +124,10 @@ namespace RSBot.XControl
             }
 
             _status.Text = message;
+
+            // Restore the saved leader name when the active character profile is loaded.
+            if (message.StartsWith("Loaded ", StringComparison.OrdinalIgnoreCase))
+                _leaderInput.Text = XControlService.GetLeaders().FirstOrDefault() ?? string.Empty;
         }
     }
 
@@ -146,7 +145,7 @@ namespace RSBot.XControl
         private static int _lastFollowTick;
         private static int _lastTick;
         private static int _followMoveInProgress;
-        private static uint _traceTargetId;
+        private static bool _followExactPosition;
         private static PendingTeleport _pendingTeleport;
 
         public static event System.Action<string> StatusChanged;
@@ -184,6 +183,12 @@ namespace RSBot.XControl
                 return false;
             }
 
+            if (Game.Player == null)
+            {
+                SetStatus("Enter the game before saving a leader name.");
+                return false;
+            }
+
             bool added;
             lock (Sync)
                 added = Leaders.Add(name);
@@ -194,8 +199,13 @@ namespace RSBot.XControl
                 return false;
             }
 
-            SaveLeaders();
-            SetStatus("Leader added: " + name);
+            if (!SaveLeaders())
+            {
+                SetStatus("Leader added for this session, but saving failed. Check the bot profile and try again.");
+                return false;
+            }
+
+            SetStatus("Leader saved: " + name);
             return true;
         }
 
@@ -223,17 +233,23 @@ namespace RSBot.XControl
             }
         }
 
-        private static void SaveLeaders()
+        private static bool SaveLeaders()
         {
             try
             {
                 var values = GetLeaders();
                 PlayerConfig.SetArray(ConfigKey, values, ";");
                 PlayerConfig.Save();
+
+                // PlayerConfig silently ignores writes when its character profile is not loaded.
+                // Read the value back so the UI never reports a save that did not happen.
+                var persisted = PlayerConfig.GetArray<string>(ConfigKey, ';');
+                return values.SequenceEqual(persisted, StringComparer.OrdinalIgnoreCase);
             }
             catch (Exception ex)
             {
                 Log.Warn("[xControl] Could not save leaders: " + ex.Message);
+                return false;
             }
         }
 
@@ -341,7 +357,6 @@ namespace RSBot.XControl
                 case "N":
                 case "NOTRACE":
                     StopTrace();
-                    StopFollow();
                     break;
 
                 case "F":
@@ -590,31 +605,18 @@ namespace RSBot.XControl
                 return;
             }
 
-            var packet = new Packet(0x7074);
-            packet.WriteByte(1);
-            packet.WriteByte(3);
-            packet.WriteByte(1);
-            packet.WriteUInt(target.UniqueId);
-            PacketManager.SendPacket(packet, PacketDestination.Server);
-
-            _traceTargetId = target.UniqueId;
-            Log.Notify("[xControl] Trace started: " + target.Name);
+            // T/TRACE is a zero-gap formation follow, not the game's built-in trace packet.
+            _followPlayer = target.Name;
+            _followDistance = 0;
+            _followExactPosition = true;
+            _followEnabled = true;
+            _lastFollowTick = 0;
+            Log.Notify("[xControl] Exact-position follow started: " + target.Name);
         }
 
         private static void StopTrace()
         {
-            if (!IsConnected || _traceTargetId == 0)
-                return;
-
-            var packet = new Packet(0x7074);
-            packet.WriteByte(2);
-            packet.WriteByte(3);
-            packet.WriteByte(1);
-            packet.WriteUInt(_traceTargetId);
-            PacketManager.SendPacket(packet, PacketDestination.Server);
-
-            _traceTargetId = 0;
-            Log.Notify("[xControl] Stop-trace packet sent. Verify this packet form on your server.");
+            StopFollow();
         }
 
         private static void StartFollow(string sender, string args)
@@ -632,6 +634,7 @@ namespace RSBot.XControl
 
             _followPlayer = target;
             _followDistance = distance;
+            _followExactPosition = false;
             _followEnabled = true;
             _lastFollowTick = 0;
             Log.Notify($"[xControl] Following {target} at {distance:0.#}m.");
@@ -640,6 +643,7 @@ namespace RSBot.XControl
         private static void StopFollow()
         {
             _followEnabled = false;
+            _followExactPosition = false;
             _followPlayer = string.Empty;
             Log.Notify("[xControl] Follow stopped.");
         }
@@ -678,19 +682,37 @@ namespace RSBot.XControl
             var dy = me.Y - leader.Y;
             var distance = Math.Sqrt(dx * dx + dy * dy);
 
-            if (distance <= _followDistance + 1.5)
-                return;
+            if (_followExactPosition)
+            {
+                // Stop only when practically on top of the leader. Otherwise send the
+                // leader's complete Position (including region and height) as our destination.
+                if (distance <= 0.25)
+                    return;
+            }
+            else
+            {
+                if (distance <= _followDistance + 1.5)
+                    return;
 
-            if (distance < 0.01)
-                return;
+                if (distance < 0.01)
+                    return;
+            }
 
-            var ratio = _followDistance / distance;
-            var destinationX = leader.X + dx * ratio;
-            var destinationY = leader.Y + dy * ratio;
-            var destination = new Position(
-                (float)destinationX,
-                (float)destinationY,
-                new RSBot.Core.Objects.Region(leader.Region.Id));
+            Position destination;
+            if (_followExactPosition)
+            {
+                destination = leader;
+            }
+            else
+            {
+                var ratio = _followDistance / distance;
+                var destinationX = leader.X + dx * ratio;
+                var destinationY = leader.Y + dy * ratio;
+                destination = new Position(
+                    (float)destinationX,
+                    (float)destinationY,
+                    new RSBot.Core.Objects.Region(leader.Region.Id));
+            }
 
             if (System.Threading.Interlocked.CompareExchange(ref _followMoveInProgress, 1, 0) != 0)
                 return;
