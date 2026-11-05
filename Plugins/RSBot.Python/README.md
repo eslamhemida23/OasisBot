@@ -50,6 +50,8 @@ Trace uses the existing `0x7074` object-action packet. The start format is alrea
 ```python
 if party.is_in_party():
     print(party.get_leader_name())
+    for member in party.get_members():
+        print(member["name"], member["hp_percentage"])
 
 party.invite_player("CharacterName")
 party.leave_party()
