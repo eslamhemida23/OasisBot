@@ -203,6 +203,89 @@ namespace RSBot.Python.Components.API.Core.Inventory
             }
         }
 
+        private PyDict BuildItemInfo(InventoryItem item)
+        {
+            var result = new PyDict();
+            if (item == null)
+                return result;
+
+            result.SetItem("model", new PyInt(item.ItemId));
+            result.SetItem("servername", new PyString(item.Record?.CodeName ?? string.Empty));
+            result.SetItem("name", new PyString(item.Record?.GetRealName() ?? string.Empty));
+            result.SetItem("tid", new PyInt(item.Record?.Tid ?? 0));
+            result.SetItem("quantity", new PyInt(item.Amount));
+            result.SetItem("plus", new PyInt(item.OptLevel));
+            result.SetItem("durability", new PyInt(item.Durability));
+            result.SetItem("slot", new PyInt(item.Slot));
+            return result;
+        }
+
+        public PyDict get_item_at(int slot)
+        {
+            using (Py.GIL())
+            {
+                if (Game.Player == null || slot < 0 || slot > byte.MaxValue)
+                    return new PyDict();
+
+                return BuildItemInfo(Game.Player.Inventory.GetItemAt((byte)slot));
+            }
+        }
+
+        public PyList find_item(string name)
+        {
+            using (Py.GIL())
+            {
+                var result = new PyList();
+                if (Game.Player == null || string.IsNullOrWhiteSpace(name))
+                    return result;
+
+                foreach (var item in Game.Player.Inventory)
+                {
+                    if (item?.Record == null)
+                        continue;
+
+                    var codeName = item.Record.CodeName ?? string.Empty;
+                    var realName = item.Record.GetRealName() ?? string.Empty;
+                    if (codeName.Contains(name, StringComparison.OrdinalIgnoreCase) ||
+                        realName.Contains(name, StringComparison.OrdinalIgnoreCase))
+                        result.Append(BuildItemInfo(item));
+                }
+
+                return result;
+            }
+        }
+
+        public bool use_item(int slot)
+        {
+            if (Game.Player == null || slot < 0 || slot > byte.MaxValue)
+                return false;
+
+            var item = Game.Player.Inventory.GetItemAt((byte)slot);
+            return item?.Use() ?? false;
+        }
+
+        public bool use_item_on_slot(int sourceSlot, int destinationSlot)
+        {
+            if (Game.Player == null ||
+                sourceSlot < 0 || sourceSlot > byte.MaxValue ||
+                destinationSlot < 0 || destinationSlot > byte.MaxValue)
+                return false;
+
+            var item = Game.Player.Inventory.GetItemAt((byte)sourceSlot);
+            return item?.UseTo((byte)destinationSlot) ?? false;
+        }
+
+        public bool move_item(int sourceSlot, int destinationSlot, int amount = 0)
+        {
+            if (Game.Player == null ||
+                sourceSlot < 0 || sourceSlot > byte.MaxValue ||
+                destinationSlot < 0 || destinationSlot > byte.MaxValue ||
+                amount < 0 || amount > ushort.MaxValue)
+                return false;
+
+            return Game.Player.Inventory.MoveItem((byte)sourceSlot, (byte)destinationSlot, (ushort)amount);
+        }
+
         public PyDict get_inventory()
         {
             return GetInventory();
