@@ -64,7 +64,8 @@ public class ChatAPI : IPythonPlugin
 
     public bool send_global(string message)
     {
-        if (Game.Player == null || string.IsNullOrWhiteSpace(message))
+        if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true ||
+            string.IsNullOrWhiteSpace(message))
             return false;
 
         var item = Game.Player.Inventory.GetItem(new TypeIdFilter(3, 3, 3, 5));
