@@ -59,6 +59,7 @@ internal class ChatResponse : IPacketHandler
                 else
                 {
                     EventManager.FireEvent("OnMessageReceived", message, Game.Player.Name, ChatType.All);
+                    EventManager.FireEvent("OnChatMessage", (byte)ChatType.All, message, Game.Player.Name);
                 }
 
                 break;
