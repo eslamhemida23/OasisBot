@@ -36,21 +36,56 @@ namespace RSBot.Python.Components.API.ModuleLoader
 
             if (plugins == null || plugins.Count == 0)
             {
-                sb.AppendLine("# [Python-API] No Plugins found - no top-level functions created");
+                sb.AppendLine("# [Python-API] No Plugins found - no API namespaces created");
                 sb.AppendLine();
                 return;
             }
 
-            sb.AppendLine("#[Python-API] Top-level API-Functions from Plugins");
+            sb.AppendLine("# Module namespaces (for example: from RSBot import player)");
             sb.AppendLine();
 
             foreach (var kv in plugins)
             {
                 var pluginName = kv.Key;
                 var plugin = kv.Value;
-                var type = plugin.GetType();
+                var methods = plugin.GetType()
+                    .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                    .Where(m =>
+                        !m.IsSpecialName
+                        && m.Name != "Init"
+                        && m.Name != "ToString"
+                        && m.Name != "Equals"
+                        && m.Name != "GetHashCode"
+                        && m.Name != "GetType"
+                    )
+                    .ToArray();
 
-                var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                sb.AppendLine($"class {pluginName}:");
+                if (methods.Length == 0)
+                {
+                    sb.AppendLine("    pass");
+                }
+                else
+                {
+                    foreach (var method in methods)
+                    {
+                        var parameters = method.GetParameters();
+                        var paramList = string.Join(", ", parameters.Select(p => $"{p.Name}: {MapType(p.ParameterType)}"));
+                        var returnType = MapType(method.ReturnType);
+                        sb.AppendLine("    @staticmethod");
+                        sb.AppendLine($"    def {method.Name}({paramList}) -> {returnType}: ...");
+                    }
+                }
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("# Backward-compatible flat API (for example: RSBot.start_bot())");
+            sb.AppendLine();
+            foreach (var kv in plugins)
+            {
+                var pluginName = kv.Key;
+                var methods = kv.Value.GetType()
+                    .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                     .Where(m =>
                         !m.IsSpecialName
                         && m.Name != "Init"
@@ -62,15 +97,10 @@ namespace RSBot.Python.Components.API.ModuleLoader
 
                 foreach (var method in methods)
                 {
-                    var name = method.Name;
                     var parameters = method.GetParameters();
                     var paramList = string.Join(", ", parameters.Select(p => $"{p.Name}: {MapType(p.ParameterType)}"));
-
-                    var returnType = MapType(method.ReturnType);
-
-                    sb.AppendLine($"def {name}({paramList}) -> {returnType}: ...  # from plugin '{pluginName}'");
+                    sb.AppendLine($"def {method.Name}({paramList}) -> {MapType(method.ReturnType)}: ...  # from '{pluginName}'");
                 }
-
                 sb.AppendLine();
             }
         }
@@ -197,9 +227,10 @@ namespace RSBot.Python.Components.API.ModuleLoader
         {
             if (t == typeof(void))
                 return "None";
-            if (t == typeof(int))
+            if (t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) ||
+                t == typeof(ushort) || t == typeof(int) || t == typeof(uint))
                 return "int";
-            if (t == typeof(long))
+            if (t == typeof(long) || t == typeof(ulong))
                 return "int";
             if (t == typeof(float) || t == typeof(double) || t == typeof(decimal))
                 return "float";
@@ -208,10 +239,10 @@ namespace RSBot.Python.Components.API.ModuleLoader
             if (t == typeof(bool))
                 return "bool";
 
-            if (typeof(System.Collections.IDictionary).IsAssignableFrom(t))
+            if (t.FullName == "Python.Runtime.PyDict" || typeof(System.Collections.IDictionary).IsAssignableFrom(t))
                 return "dict";
 
-            if (typeof(System.Collections.IEnumerable).IsAssignableFrom(t) && t != typeof(string))
+            if (t.FullName == "Python.Runtime.PyList" || (typeof(System.Collections.IEnumerable).IsAssignableFrom(t) && t != typeof(string)))
                 return "list";
 
             if (t.FullName == "Python.Runtime.PyObject")
