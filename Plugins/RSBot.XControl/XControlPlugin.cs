@@ -389,6 +389,7 @@ namespace RSBot.XControl
 
         private static void HandleCommand(string sender, string message)
         {
+            _lastCommandSender = sender;
             if (string.IsNullOrWhiteSpace(message))
                 return;
 
