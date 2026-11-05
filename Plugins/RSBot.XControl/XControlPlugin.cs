@@ -47,7 +47,6 @@ namespace RSBot.XControl
     public sealed class XControlView : UserControl, IPluginView
     {
         private readonly TextBox _leaderInput;
-        private readonly ListBox _leaders;
         private readonly Label _status;
 
         public string InternalName => "RSBot.XControl";
@@ -63,128 +62,60 @@ namespace RSBot.XControl
             BackColor = Color.WhiteSmoke;
             Padding = new Padding(12);
 
-            var title = new Label
+            var prompt = new Label
             {
-                Text = "xControl - Party command controller",
+                Text = "Leader character name:",
                 AutoSize = true,
-                Font = new Font("Segoe UI", 11f, FontStyle.Bold),
-                Location = new Point(12, 12)
-            };
-
-            var leaderGroup = new GroupBox
-            {
-                Text = "Trusted party leaders",
-                Location = new Point(12, 48),
-                Size = new Size(290, 310),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left
+                Location = new Point(12, 16)
             };
 
             _leaderInput = new TextBox
             {
-                Location = new Point(12, 26),
-                Size = new Size(170, 24)
+                Location = new Point(12, 42),
+                Size = new Size(220, 25),
+                PlaceholderText = "Enter leader name"
             };
 
             var add = new Button
             {
-                Text = "Add",
-                Location = new Point(190, 25),
-                Size = new Size(82, 26)
+                Text = "Add Leader",
+                Location = new Point(242, 40),
+                Size = new Size(105, 28)
             };
+
+            _status = new Label
+            {
+                AutoSize = true,
+                Location = new Point(12, 82),
+                ForeColor = Color.DimGray,
+                Text = "Add the character allowed to send commands in Party chat."
+            };
+
             add.Click += (_, _) =>
             {
                 if (XControlService.AddLeader(_leaderInput.Text))
                     _leaderInput.Clear();
             };
 
-            _leaders = new ListBox
+            _leaderInput.KeyDown += (_, e) =>
             {
-                Location = new Point(12, 60),
-                Size = new Size(260, 185),
-                IntegralHeight = false
+                if (e.KeyCode != Keys.Enter)
+                    return;
+
+                e.SuppressKeyPress = true;
+                if (XControlService.AddLeader(_leaderInput.Text))
+                    _leaderInput.Clear();
             };
 
-            var remove = new Button
-            {
-                Text = "Remove selected",
-                Location = new Point(12, 255),
-                Size = new Size(260, 28)
-            };
-            remove.Click += (_, _) =>
-            {
-                if (_leaders.SelectedItem is string selected)
-                    XControlService.RemoveLeader(selected);
-            };
-
-            leaderGroup.Controls.Add(_leaderInput);
-            leaderGroup.Controls.Add(add);
-            leaderGroup.Controls.Add(_leaders);
-            leaderGroup.Controls.Add(remove);
-
-            var commands = new TextBox
-            {
-                Multiline = true,
-                ReadOnly = true,
-                ScrollBars = ScrollBars.Vertical,
-                WordWrap = false,
-                Font = new Font("Consolas", 9f),
-                Location = new Point(318, 58),
-                Size = new Size(535, 300),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                Text =
-                    "BOT:       START / S        STOP / SS\r\n" +
-                    "TRACE:     TRACE [Player]    NOTRACE / N\r\n" +
-                    "FOLLOW:    FOLLOW [Player] [Distance]   NOFOLLOW / NF\r\n" +
-                    "PLAYER:    STATUS   HP   MP   RETURN / RE   ZERK / Z   SIT\r\n" +
-                    "PARTY:     GETOUT / G\r\n" +
-                    "INVENTORY: INV   USE [item name]\r\n" +
-                    "PETS:      MOUNT [type]   DISMOUNT [type]   TERM\r\n" +
-                    "MOVE:      GETPOS   MOVEON [radius]\r\n" +
-                    "TRAINING:  SETPOS [X Y]   SETAREA [name]   SETRADIUS [5..100]\r\n" +
-                    "TELEPORT:  LQ   Q1 / Q2 / Q3   TP [Source,Destination]\r\n" +
-                    "CHAT:      CHAT [all|party|guild|union|global] [message]\r\n" +
-                    "PRIVATE:   CHAT private [player] [message]\r\n" +
-                    "SYNC:      XCTP is internal; sent after captured teleport\r\n\r\n" +
-                    "Only uppercase command keywords are accepted. Add the leader names above."
-            };
-
-            _status = new Label
-            {
-                AutoSize = true,
-                Location = new Point(12, 370),
-                ForeColor = Color.DimGray,
-                Text = "Leaders are saved in the current character profile."
-            };
-
-            Controls.Add(title);
-            Controls.Add(leaderGroup);
-            Controls.Add(commands);
+            Controls.Add(prompt);
+            Controls.Add(_leaderInput);
+            Controls.Add(add);
             Controls.Add(_status);
 
-            XControlService.LeadersChanged += RefreshLeaders;
             XControlService.StatusChanged += SetStatus;
-            RefreshLeaders();
         }
 
         public void Translate() { }
-
-        private void RefreshLeaders()
-        {
-            if (IsDisposed)
-                return;
-
-            if (InvokeRequired)
-            {
-                try { BeginInvoke(new System.Action(RefreshLeaders)); } catch { }
-                return;
-            }
-
-            _leaders.BeginUpdate();
-            _leaders.Items.Clear();
-            foreach (var name in XControlService.GetLeaders())
-                _leaders.Items.Add(name);
-            _leaders.EndUpdate();
-        }
 
         private void SetStatus(string message)
         {
@@ -218,7 +149,6 @@ namespace RSBot.XControl
         private static uint _traceTargetId;
         private static PendingTeleport _pendingTeleport;
 
-        public static event System.Action LeadersChanged;
         public static event System.Action<string> StatusChanged;
 
         private sealed class PendingTeleport
@@ -259,7 +189,6 @@ namespace RSBot.XControl
                 return false;
 
             SaveLeaders();
-            LeadersChanged?.Invoke();
             SetStatus("Added leader: " + name);
             return true;
         }
@@ -296,7 +225,6 @@ namespace RSBot.XControl
                     }
                 }
 
-                LeadersChanged?.Invoke();
                 SetStatus("Loaded " + Leaders.Count + " trusted leader(s).");
             }
             catch (Exception ex)
@@ -366,13 +294,8 @@ namespace RSBot.XControl
                 string.Equals(sender, Game.Player.Name, StringComparison.OrdinalIgnoreCase))
                 return;
 
-            // Private, party, all, guild and union chat. Ignore notices and NPC messages.
-            if (type != (byte)ChatType.Private &&
-                type != (byte)ChatType.Party &&
-                type != (byte)ChatType.All &&
-                type != (byte)ChatType.AllGM &&
-                type != (byte)ChatType.Guild &&
-                type != (byte)ChatType.Union)
+            // Commands are accepted from Party chat only.
+            if (type != (byte)ChatType.Party)
                 return;
 
             if (!IsLeader(sender))
@@ -395,12 +318,10 @@ namespace RSBot.XControl
                 return;
 
             var split = message.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
-            var command = split[0];
+            var command = split[0].ToUpperInvariant();
             var args = split.Length > 1 ? split[1].Trim() : string.Empty;
 
-            // Keep original case for player/item names; only the command token must be uppercase.
-            if (!string.Equals(command, command.ToUpperInvariant(), StringComparison.Ordinal))
-                return;
+            // Command keywords are case-insensitive; player and item names keep their original case.
 
             if (command == "XCTP")
             {
