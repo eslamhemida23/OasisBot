@@ -15,6 +15,7 @@ from RSBot import (
     pets,
     chat,
     packets,
+    npc,
     teleport,
     gui,
 )
@@ -116,6 +117,20 @@ chat.send_global("Global message")  # requires a global chat item
 ```
 
 `send_message(channel, message, receiver=None)` also accepts the numeric `ChatType` values defined by OasisBot, but validates supported outgoing channels.
+
+## NPC interaction
+
+```python
+npc_data = npc.get_npc(npc_uid)
+print(npc_data["servername"], npc_data["options"])
+
+npc.select(npc_uid)
+npc.talk(npc_uid, 8)  # TalkOption.TeleportTarget
+dialog = npc.get_dialog_state()
+npc.deselect(npc_uid)
+```
+
+`talk(uid, option)` selects the NPC, sends the Core's `0x7046` talk request, and waits for the `0xB046` response. Common `TalkOption` values include Store=1, Quest=2, Storage=3, Repair=4, SetReturnPoint=7, TeleportTarget=8, TeleportReturnPoint=9, WithdrawSkill=10, Stable=11, Trade=12, Guild=15, Trader=20, Hunter=22, TeleportLastLocation=28, and TeleportGuide=30. The valid values depend on the NPC and server.
 
 ## World and teleport
 
