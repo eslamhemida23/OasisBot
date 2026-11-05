@@ -89,6 +89,21 @@ public class TeleportAPI : IPythonPlugin
             out var teleporter))
             return false;
 
+        return teleport_by_uid(teleporter.UniqueId, destinationId, timeoutMs);
+    }
+
+    public bool teleport_by_uid(uint teleporterUniqueId, uint destinationId, int timeoutMs = 30000)
+    {
+        if (Game.Player == null ||
+            Kernel.Proxy?.IsConnectedToAgentserver != true ||
+            teleporterUniqueId == 0 ||
+            destinationId == 0 ||
+            timeoutMs < 1000 || timeoutMs > 120000)
+            return false;
+
+        if (!SpawnManager.TryGetEntity<SpawnedBionic>(teleporterUniqueId, out var teleporter))
+            return false;
+
         if (!teleporter.TrySelect())
             return false;
 
