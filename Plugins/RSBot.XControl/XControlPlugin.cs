@@ -531,7 +531,7 @@ namespace RSBot.XControl
                     break;
 
                 case "LQ":
-                    TryTeleportNamed("Kings Valley", "Pharaoh tomb (beginner)");
+                    TryTeleportNamed("Kings Valley,Pharaoh tomb (beginner)");
                     break;
 
                 case "Q1":
