@@ -1,7 +1,7 @@
 ﻿using System.IO;
-using System.Windows.Forms;
 using Python.Runtime;
 using RSBot.Core;
+using RSBot.Core.Components;
 using RSBot.Python.Components.API.Interface;
 using RSBot.Python.Views;
 
@@ -10,7 +10,6 @@ namespace RSBot.Python.Components.API.Core.Entity
     public class ConfigAPI : IPythonPlugin
     {
         private Main _main;
-        private string projectDir = Directory.GetParent(Application.StartupPath).FullName;
 
         /// <summary>
         /// Unique module name of the plugin.
@@ -28,30 +27,30 @@ namespace RSBot.Python.Components.API.Core.Entity
 
         private string GetConfigDir()
         {
-            return Path.Combine(projectDir, "User");
+            return Path.Combine(Kernel.BasePath, "User", ProfileManager.SelectedProfile);
         }
 
         private string GetConfigPath()
         {
             if (Game.Player == null)
             {
-                return Path.Combine(projectDir, "User", "Default");
+                return GetConfigDir();
             }
-            return Path.Combine(projectDir, "User", "Default", $"{Game.Player.Name}.rs");
+            return Path.Combine(GetConfigDir(), $"{Game.Player.Name}.rs");
         }
 
         private string GetLogDir()
         {
-            return Path.Combine(projectDir, "User", "Logs");
+            return Path.Combine(Kernel.BasePath, "User", "Logs");
         }
 
         private string GetLogPath()
         {
             if (Game.Player == null)
             {
-                return Path.Combine(projectDir, "User", "Logs");
+                return GetLogDir();
             }
-            return Path.Combine(projectDir, "User", "Logs", Game.Player.Name);
+            return Path.Combine(GetLogDir(), Game.Player.Name);
         }
 
         public bool exists(string key)
