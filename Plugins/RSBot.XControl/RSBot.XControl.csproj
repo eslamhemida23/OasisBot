@@ -1,17 +1,119 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
-    <PlatformTarget>x86</PlatformTarget>
-    <Nullable>disable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>RSBot.XControl</AssemblyName>
-    <RootNamespace>RSBot.XControl</RootNamespace>
-  </PropertyGroup>
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using RSBot.Core;
+using RSBot.Core.Plugins;
+using RSBot.Core.Event;
+using RSBot.Core.Network;
 
-  <ItemGroup>
-    <!-- ربط الإضافة بالمكتبة الأساسية للبوت -->
-    <ProjectReference Include="..\..\Library\RSBot.Core\RSBot.Core.csproj" />
-    <ProjectReference Include="..\..\Library\RSBot.Plugin\RSBot.Plugin.csproj" />
-  </ItemGroup>
-</Project>
+namespace RSBot.XControl
+{
+    public class XControlPlugin : IPlugin
+    {
+        public string InternalName => "xControl";
+        public string DisplayName => "xControl";
+        public string Description => "Party Control Plugin";
+        public string Author => "YourName";
+        public string Version => "1.0.0";
+
+        private XControlView _view;
+
+        public void Initialize()
+        {
+            Log.Notify("[xControl] Initializing...");
+            
+            // إنشاء واجهة التحكم
+            _view = new XControlView();
+            
+            // الاستماع لرسائل الشات
+            EventManager.SubscribeEvent("OnChatMessage", new Action<byte, string, string>(OnChatMessage));
+            
+            Log.Notify("[xControl] Loaded successfully!");
+        }
+
+        // ✅ أضفنا هذه الدالة لحل مشكلة البناء
+        public void OnLoadCharacter()
+        {
+            Log.Notify("[xControl] Character loaded, plugin is ready.");
+        }
+
+        public Control GetView()
+        {
+            return _view;
+        }
+
+        private void OnChatMessage(byte type, string sender, string message)
+        {
+            // التحقق مما إذا كان المرسل قائداً
+            if (_view != null && _view.IsLeader(sender))
+            {
+                // تمرير الأمر للواجهة لتنفيذه
+                _view.HandleCommand(sender, message);
+            }
+        }
+    }
+
+    // واجهة التحكم (اللوحة التي ستظهر في البوت)
+    public class XControlView : UserControl
+    {
+        private TextBox txtLeaderName;
+        private Button btnAdd;
+        private ListBox lstLeaders;
+        private System.Collections.Generic.HashSet<string> leaders = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public XControlView()
+        {
+            this.Dock = DockStyle.Fill;
+            this.BackColor = Color.WhiteSmoke;
+            this.Padding = new Padding(10);
+
+            // تصميم بسيط للواجهة
+            var lblTitle = new Label { Text = "Add Leader:", Location = new Point(10, 10), AutoSize = true };
+            txtLeaderName = new TextBox { Location = new Point(10, 30), Width = 150 };
+            btnAdd = new Button { Text = "Add", Location = new Point(170, 28), Width = 70 };
+            
+            lstLeaders = new ListBox { Location = new Point(10, 70), Width = 230, Height = 200 };
+
+            btnAdd.Click += (s, e) => {
+                var name = txtLeaderName.Text.Trim();
+                if (!string.IsNullOrEmpty(name))
+                {
+                    leaders.Add(name);
+                    lstLeaders.Items.Add(name);
+                    txtLeaderName.Text = "";
+                }
+            };
+
+            this.Controls.Add(lblTitle);
+            this.Controls.Add(txtLeaderName);
+            this.Controls.Add(btnAdd);
+            this.Controls.Add(lstLeaders);
+        }
+
+        public bool IsLeader(string name)
+        {
+            return leaders.Contains(name);
+        }
+
+        public void HandleCommand(string sender, string msg)
+        {
+            msg = msg.Trim().ToUpper();
+            
+            // مثال على تنفيذ الأوامر
+            if (msg == "START")
+            {
+                Kernel.Bot.Start();
+                Log.Notify($"[xControl] Bot started by {sender}");
+            }
+            else if (msg == "STOP")
+            {
+                Kernel.Bot.Stop();
+                Log.Notify($"[xControl] Bot stopped by {sender}");
+            }
+            else if (msg == "RE" || msg == "RETURN")
+            {
+                Player.UseReturnScroll();
+            }
+        }
+    }
+}
