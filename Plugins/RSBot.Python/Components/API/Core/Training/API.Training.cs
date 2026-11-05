@@ -179,8 +179,10 @@ namespace RSBot.Python.Components.API.Core.Training
 
         public bool set_training_radius(int radius)
         {
-            if (Game.Player == null || radius < 0)
+            if (Game.Player == null)
                 return false;
+
+            radius = Math.Clamp(radius, 5, 100);
 
             try
             {
