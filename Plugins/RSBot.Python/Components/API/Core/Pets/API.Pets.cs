@@ -12,6 +12,8 @@ public class PetsAPI : IPythonPlugin
 
     public void Init(RSBot.Python.Views.Main main) { }
 
+    private static bool IsConnected => Game.Player != null && Kernel.Proxy?.IsConnectedToAgentserver == true;
+
     private static PyDict BuildPet(Cos pet, string kind)
     {
         using (Py.GIL())
@@ -59,42 +61,42 @@ public class PetsAPI : IPythonPlugin
 
     public bool summon_growth()
     {
-        return Game.Player != null && Game.Player.SummonGrowth();
+        return IsConnected && Game.Player.SummonGrowth();
     }
 
     public bool summon_fellow()
     {
-        return Game.Player != null && Game.Player.SummonFellow();
+        return IsConnected && Game.Player.SummonFellow();
     }
 
     public bool summon_vehicle()
     {
-        return Game.Player != null && Game.Player.SummonVehicle();
+        return IsConnected && Game.Player.SummonVehicle();
     }
 
     public bool summon_ability_pet()
     {
-        return Game.Player != null && Game.Player.SummonAbilityPet();
+        return IsConnected && Game.Player.SummonAbilityPet();
     }
 
     public bool revive_growth()
     {
-        return Game.Player != null && Game.Player.ReviveGrowth();
+        return IsConnected && Game.Player.ReviveGrowth();
     }
 
     public bool revive_fellow()
     {
-        return Game.Player != null && Game.Player.ReviveFellow();
+        return IsConnected && Game.Player.ReviveFellow();
     }
 
     public bool dismount()
     {
-        return Game.Player?.Vehicle?.Dismount() ?? false;
+        return IsConnected && (Game.Player?.Vehicle?.Dismount() ?? false);
     }
 
     public bool terminate(string petType)
     {
-        if (Game.Player == null || string.IsNullOrWhiteSpace(petType))
+        if (!IsConnected || string.IsNullOrWhiteSpace(petType))
             return false;
 
         return petType.Trim().ToLowerInvariant() switch
@@ -126,7 +128,7 @@ public class PetsAPI : IPythonPlugin
 
     public bool use_hunger_potion()
     {
-        if (Game.Player == null)
+        if (!IsConnected)
             return false;
 
         if (Game.Player.Growth != null)
