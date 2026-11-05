@@ -172,6 +172,55 @@ def use_berserk():
     log("Berserk returned: " + str(player.use_berserk()))
 
 
+def set_test_training_radius():
+    result = training.set_training_radius(60)
+    log("Set training radius to 60 returned: " + str(result))
+
+
+def talk_to_npc():
+    try:
+        unique_id = int(npc_uid.get_text().strip())
+        option = int(npc_option.get_text().strip())
+    except ValueError:
+        log("NPC UID and talk option must be integers.")
+        return
+    log("NPC talk returned: " + str(npc.talk(unique_id, option)))
+
+
+def teleport_to_destination():
+    code_name = teleporter_name.get_text().strip()
+    try:
+        destination_id = int(destination_uid.get_text().strip())
+    except ValueError:
+        log("Destination ID must be an integer.")
+        return
+    if not code_name:
+        log("Enter the teleporter NPC code name.")
+        return
+    result = teleport.teleport(code_name, destination_id)
+    log("Teleport request returned: " + str(result))
+
+
+def summon_growth():
+    log("Summon growth returned: " + str(pets.summon_growth()))
+
+
+def summon_fellow():
+    log("Summon fellow returned: " + str(pets.summon_fellow()))
+
+
+def dismount_pet():
+    log("Dismount returned: " + str(pets.dismount()))
+
+
+def feed_pet():
+    log("Use pet hunger/satiety potion returned: " + str(pets.use_hunger_potion()))
+
+
+def terminate_growth():
+    log("Terminate growth returned: " + str(pets.terminate("growth")))
+
+
 def register_chat_packet_monitor():
     global _packet_handler_id
     if _packet_handler_id:
@@ -271,5 +320,25 @@ ui.Button("Berserk", 356, 300, 100, 30, use_berserk)
 
 ui.Button("Watch Chat Packets", 12, 338, 160, 30, register_chat_packet_monitor)
 ui.Button("Stop Packet Watch", 180, 338, 160, 30, unregister_chat_packet_monitor)
+
+ui.Label("NPC UID:", 12, 378, 80, 22)
+npc_uid = ui.TextBox("0", 95, 374, 95, 28)
+ui.Label("Talk option:", 200, 378, 90, 22)
+npc_option = ui.TextBox("8", 290, 374, 60, 28)
+ui.Button("Talk to NPC", 365, 374, 125, 30, talk_to_npc)
+
+ui.Label("Teleporter CodeName:", 12, 416, 150, 22)
+teleporter_name = ui.TextBox("", 165, 412, 190, 28)
+ui.Label("Destination ID:", 365, 416, 100, 22)
+destination_uid = ui.TextBox("0", 465, 412, 75, 28)
+ui.Button("Teleport", 548, 412, 90, 30, teleport_to_destination)
+
+ui.Button("Summon Growth", 12, 450, 130, 30, summon_growth)
+ui.Button("Summon Fellow", 150, 450, 130, 30, summon_fellow)
+ui.Button("Dismount", 288, 450, 100, 30, dismount_pet)
+ui.Button("Feed Pet", 396, 450, 100, 30, feed_pet)
+ui.Button("Terminate Growth", 504, 450, 135, 30, terminate_growth)
+
+ui.Button("Set Training Radius = 60", 12, 488, 190, 30, set_test_training_radius)
 
 log("Loaded successfully. Use the read-only test buttons first.")
