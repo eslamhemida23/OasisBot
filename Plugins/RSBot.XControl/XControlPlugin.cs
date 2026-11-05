@@ -31,6 +31,12 @@ namespace RSBot.XControl
             Log.Notify("[xControl] Loaded successfully!");
         }
 
+        // ✅ هذه هي الدالة التي يشتكي المترجم من غيابها
+        public void OnLoadCharacter()
+        {
+            Log.Notify("[xControl] Character loaded, plugin is ready.");
+        }
+
         public Control GetView()
         {
             return _view;
@@ -38,7 +44,7 @@ namespace RSBot.XControl
 
         private void OnChatMessage(byte type, string sender, string message)
         {
-            // التحقق مما إذا كان المرسل قائداً (يمكنك إضافة المنطق هنا)
+            // التحقق مما إذا كان المرسل قائداً
             if (_view != null && _view.IsLeader(sender))
             {
                 // تمرير الأمر للواجهة لتنفيذه
