@@ -2,12 +2,16 @@ using System;
 using Python.Runtime;
 using RSBot.Python.Components.API.Interface;
 using RSBot.Core;
+using RSBot.Core.Components;
 using RSBot.Core.Objects;
+using RSBot.Core.Network;
+using RSBot.Core.Objects.Spawn;
 
 namespace RSBot.Python.Components.API.Core.Player;
 
 public class PlayerAPI : IPythonPlugin
 {
+    private static uint _traceTargetId;
     public string ModuleName => "player";
 
     public void Init(RSBot.Python.Views.Main main) { }
@@ -67,6 +71,43 @@ public class PlayerAPI : IPythonPlugin
             Log.Warn($"[Python-API] player.move_to failed: {ex.Message}");
             return false;
         }
+    }
+
+    public bool start_trace(string playerName)
+    {
+        if (Game.Player == null || string.IsNullOrWhiteSpace(playerName))
+            return false;
+
+        if (!SpawnManager.TryGetEntity<SpawnedPlayer>(
+            player => string.Equals(player.Name, playerName, StringComparison.OrdinalIgnoreCase),
+            out var target))
+            return false;
+
+        var packet = new Packet(0x7074);
+        packet.WriteByte(1);
+        packet.WriteByte(3);
+        packet.WriteByte(1);
+        packet.WriteUInt(target.UniqueId);
+        PacketManager.SendPacket(packet, PacketDestination.Server);
+
+        _traceTargetId = target.UniqueId;
+        return true;
+    }
+
+    public bool stop_trace()
+    {
+        if (Game.Player == null || _traceTargetId == 0)
+            return false;
+
+        var packet = new Packet(0x7074);
+        packet.WriteByte(2);
+        packet.WriteByte(3);
+        packet.WriteByte(1);
+        packet.WriteUInt(_traceTargetId);
+        PacketManager.SendPacket(packet, PacketDestination.Server);
+
+        _traceTargetId = 0;
+        return true;
     }
 
     public bool use_return_scroll()
