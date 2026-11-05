@@ -1,4 +1,6 @@
+using System;
 using RSBot.Core;
+using RSBot.Python.Components.API.Interface;
 using RSBot.Core.Extensions;
 using RSBot.Core.Network;
 using RSBot.Core.Objects;
