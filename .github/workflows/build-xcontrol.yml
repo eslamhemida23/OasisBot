@@ -1,0 +1,33 @@
+name: Build xControl Plugin
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore Dependencies
+      run: dotnet restore Plugins/RSBot.XControl/RSBot.XControl.csproj
+
+    - name: Build Plugin
+      run: dotnet build Plugins/RSBot.XControl/RSBot.XControl.csproj -c Release --no-restore
+
+    - name: Upload DLL Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: RSBot.XControl-DLL
+        path: Plugins/RSBot.XControl/bin/Release/net8.0-windows/RSBot.XControl.dll
