@@ -12,6 +12,7 @@ using RSBot.Core.Objects.Skill;
 using RSBot.Core.Objects.Spawn;
 using RSBot.General.Components;
 using RSBot.Python.Components.API.Interface;
+using RSBot.Python.Components.API.Utils;
 using RSBot.Python.Views;
 
 namespace RSBot.Python.Components.API.Core.Entity
@@ -256,7 +257,7 @@ namespace RSBot.Python.Components.API.Core.Entity
                     new PyString("mp_percentage"),
                     new PyInt(Game.Player.MaximumMana <= 0 ? 0 : Math.Clamp((int)Math.Round(Game.Player.Mana * 100d / Game.Player.MaximumMana), 0, 100))
                 );
-                result.SetItem(new PyString("is_dead"), new PyBool(Game.Player.State.LifeState == LifeState.Dead));
+                result.SetItem(new PyString("is_dead"), PythonBool.FromBoolean(Game.Player.State.LifeState == LifeState.Dead));
                 result.SetItem(new PyString("max_hp"), new PyInt(Game.Player.MaximumHealth));
                 result.SetItem(new PyString("max_mp"), new PyInt(Game.Player.MaximumMana));
                 result.SetItem(new PyString("exp"), new PyInt(Game.Player.Experience));
@@ -432,7 +433,7 @@ namespace RSBot.Python.Components.API.Core.Entity
                 if (Game.Player == null || uniqueId == 0 ||
                     !SpawnManager.TryGetEntityIncludingMe(uniqueId, out var entity))
                 {
-                    result.SetItem("found", new PyBool(false));
+                    result.SetItem("found", PythonBool.FromBoolean(false));
                     return result;
                 }
 
@@ -449,7 +450,7 @@ namespace RSBot.Python.Components.API.Core.Entity
                     entity is Cos cos ? cos.Name :
                     entity.Record?.GetRealName() ?? string.Empty;
 
-                result.SetItem("found", new PyBool(true));
+                result.SetItem("found", PythonBool.FromBoolean(true));
                 result.SetItem("uid", new PyInt(entity.UniqueId));
                 result.SetItem("model", new PyInt(entity.Id));
                 result.SetItem("type", new PyString(type));
