@@ -45,17 +45,22 @@ clr.AddReference('RSBot.Python')
 from RSBot.Python.Components.API.ModuleLoader import PythonPluginAccessor
 
 RSBot = types.ModuleType('RSBot')
+RSBot.__path__ = []
+sys.modules['RSBot'] = RSBot
 plugins = PythonPluginAccessor.all()
 
 for name, plugin in plugins.items():
+    api_module = types.ModuleType(f'RSBot.{name}')
     for attr_name in dir(plugin):
-        if attr_name.startswith('_'):
+        if attr_name.startswith('_') or attr_name == 'Init':
             continue
         attr = getattr(plugin, attr_name)
         if callable(attr):
+            setattr(api_module, attr_name, attr)
+            # Keep the legacy flat API while exposing collision-free module namespaces.
             setattr(RSBot, attr_name, attr)
-
-sys.modules['RSBot'] = RSBot
+    setattr(RSBot, name, api_module)
+    sys.modules[api_module.__name__] = api_module
 
 from RSBot.Python.Components.API.GUI import WFAPI
 RSBot.GUI = WFAPI.GUI
