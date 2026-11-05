@@ -177,6 +177,24 @@ namespace RSBot.Python.Components.API.Core.Training
             return SetTrainingPosition(x, y, region, radius);
         }
 
+        public bool set_training_radius(int radius)
+        {
+            if (Game.Player == null || radius < 0)
+                return false;
+
+            try
+            {
+                PlayerConfig.Set("RSBot.Area.Radius", radius);
+                EventManager.FireEvent("OnSetTrainingArea");
+                return true;
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"[Python-API] Could not set training radius: {e.Message}");
+                return false;
+            }
+        }
+
         public bool set_training_script(string path)
         {
             return SetTrainingScript(path);
