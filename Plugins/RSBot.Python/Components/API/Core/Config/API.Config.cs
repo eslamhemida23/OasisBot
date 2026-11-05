@@ -111,7 +111,10 @@ namespace RSBot.Python.Components.API.Core.Entity
             using (Py.GIL())
             {
                 foreach (PyObject value in values)
-                    items.Add(value.ToString());
+                {
+                    using (value)
+                        items.Add(value.ToString());
+                }
             }
             PlayerConfig.SetArray(key, items);
         }
