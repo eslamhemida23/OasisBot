@@ -98,8 +98,8 @@ handler_id = packets.add_handler(0x3026, "server_to_client", "on_interesting_pac
 packets.remove_handler(handler_id)
 packets.remove_all_handlers()
 
-# Send a raw payload encoded as hexadecimal bytes.
-packets.send_server_hex(0x7025, "01 01 00 48 69")
+# Send raw bytes. Supply a payload that matches the selected opcode.
+packets.send_server_hex(opcode, "PAYLOAD_HEX")
 ```
 
 Packet directions are `client_to_server` and `server_to_client`. Registered handlers are passive observers: they receive the opcode, direction, and packet payload as hex, but cannot modify, replace, or suppress the original packet. For lower-level raw byte-array sending, the existing `core.send_server(opcode, data, encrypted)` and `core.send_client(opcode, data, encrypted)` methods remain available.
@@ -167,7 +167,7 @@ Define any callbacks your script needs at module level:
 | `event_loop()` | none | Existing Python timer callback |
 | `on_tick()` | none | Additional timer callback, normally every 500 ms |
 
-The chat callback is fed by the parsed ChatResponse handler. Notice messages and the currently unimplemented NPC chat branch are not included. Packet callbacks are observational; registering custom packet handlers from Python is not part of this API tranche.
+The chat callback is fed by the parsed ChatResponse handler. Notice messages and the currently unimplemented NPC chat branch are not included. The callback name passed to `packets.add_handler` is invoked with `(opcode, direction, data_hex)` whenever a matching packet is observed.
 
 ## Notes
 
