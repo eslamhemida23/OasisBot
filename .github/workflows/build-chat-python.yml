@@ -32,6 +32,16 @@ jobs:
       - name: Build RSBot.Python
         run: msbuild Plugins/RSBot.Python/RSBot.Python.csproj /restore /m /p:Configuration=Release /p:Platform=x86
 
+      - name: Stage Python API test plugin
+        shell: pwsh
+        run: |
+          $pluginDir = "Build/Data/Python/Plugins"
+          New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
+          Copy-Item "Plugins/RSBot.Python/Examples/OasisApiTest.py" "$pluginDir/OasisApiTest.py" -Force
+          if (!(Test-Path "$pluginDir/OasisApiTest.py")) {
+            throw "Python API test plugin was not staged."
+          }
+
       - name: Verify output DLLs
         shell: pwsh
         run: |
@@ -39,7 +49,11 @@ jobs:
           $python = "Build/Data/Plugins/RSBot.Python.dll"
           if (!(Test-Path $chat)) { throw "Missing build output: $chat" }
           if (!(Test-Path $python)) { throw "Missing build output: $python" }
-          Get-Item $chat, $python | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
+          if (!(Test-Path "Build/Data/Python/Plugins/OasisApiTest.py")) {
+            throw "Missing staged Python API test plugin."
+          }
+          Get-Item $chat, $python, "Build/Data/Python/Plugins/OasisApiTest.py" |
+            Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
 
       - name: Upload compiled DLLs
         uses: actions/upload-artifact@v4
@@ -48,5 +62,6 @@ jobs:
           path: |
             Build/Data/Plugins/RSBot.Chat.dll
             Build/Data/Plugins/RSBot.Python.dll
+            Build/Data/Python/Plugins/OasisApiTest.py
           if-no-files-found: error
           retention-days: 7
