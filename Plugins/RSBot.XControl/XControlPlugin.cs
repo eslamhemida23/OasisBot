@@ -31,7 +31,7 @@ namespace RSBot.XControl
                 "OnChatMessage",
                 new System.Action<byte, string, string>(XControlService.OnChatMessage));
             EventManager.SubscribeEvent("OnTick", new System.Action(XControlService.OnTick));
-            EventManager.SubscribeEvent("OnEnterGame", new Action(XControlService.LoadLeaders));
+            EventManager.SubscribeEvent("OnEnterGame", new System.Action(XControlService.LoadLeaders));
             Log.Notify("[xControl] Native C# plugin initialized.");
         }
 
@@ -752,7 +752,7 @@ namespace RSBot.XControl
             var destination = new Position(
                 (float)destinationX,
                 (float)destinationY,
-                new Region(leader.Region.Id));
+                new RSBot.Core.Objects.Region(leader.Region.Id));
 
             Game.Player.MoveTo(destination, false);
         }
