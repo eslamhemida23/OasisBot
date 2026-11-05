@@ -179,33 +179,23 @@ namespace RSBot.XControl
         {
             var name = NormalizePlayerName(value);
             if (string.IsNullOrWhiteSpace(name))
+            {
+                SetStatus("Enter a leader character name.");
                 return false;
+            }
 
             bool added;
             lock (Sync)
                 added = Leaders.Add(name);
 
             if (!added)
+            {
+                SetStatus("Leader already added: " + name);
                 return false;
+            }
 
             SaveLeaders();
-            SetStatus("Added leader: " + name);
-            return true;
-        }
-
-        public static bool RemoveLeader(string value)
-        {
-            var name = NormalizePlayerName(value);
-            bool removed;
-            lock (Sync)
-                removed = Leaders.Remove(name);
-
-            if (!removed)
-                return false;
-
-            SaveLeaders();
-            LeadersChanged?.Invoke();
-            SetStatus("Removed leader: " + name);
+            SetStatus("Leader added: " + name);
             return true;
         }
 
