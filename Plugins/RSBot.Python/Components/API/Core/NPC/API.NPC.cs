@@ -1,6 +1,8 @@
 using System;
 using Python.Runtime;
 using RSBot.Core;
+using RSBot.Core.Components;
+using RSBot.Core.Extensions;
 using RSBot.Core.Network;
 using RSBot.Core.Objects;
 using RSBot.Core.Objects.Spawn;
@@ -36,7 +38,7 @@ public class NpcAPI : IPythonPlugin
             result.SetItem("custom_name", new PyString(npc.Talk.CustomName ?? string.Empty));
             result.SetItem("custom_type", new PyInt(npc.Talk.CustomType));
             result.SetItem("custom_id", new PyInt(npc.Talk.CustomId));
-            result.SetItem("option_flags", new PyInt((long)npc.Talk.OptionFlags));
+            result.SetItem("option_flags", new PyString($"0x{npc.Talk.OptionFlags:X16}"));
 
             var options = new PyList();
             if (npc.Talk.Options != null)
