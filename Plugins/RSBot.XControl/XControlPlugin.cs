@@ -135,13 +135,13 @@ namespace RSBot.XControl
                     "BOT:       START / S        STOP / SS\r\n" +
                     "TRACE:     TRACE [Player]    NOTRACE / N\r\n" +
                     "FOLLOW:    FOLLOW [Player] [Distance]   NOFOLLOW / NF\r\n" +
-                    "PLAYER:    STATUS   HP   MP   RETURN / RE   ZERK / Z\r\n" +
+                    "PLAYER:    STATUS   HP   MP   RETURN / RE   ZERK / Z   SIT\r\n" +
                     "PARTY:     GETOUT / G\r\n" +
                     "INVENTORY: INV   USE [item name]\r\n" +
-                    "PETS:      MOUNT   DISMOUNT   TERM\r\n" +
+                    "PETS:      MOUNT [type]   DISMOUNT [type]   TERM\r\n" +
                     "MOVE:      GETPOS   MOVEON [radius]\r\n" +
-                    "TRAINING:  SETPOS [X Y]   SETRADIUS [5..100]\r\n" +
-                    "TELEPORT:  Q1 / Q2 / Q3   TP [Source,Destination]\r\n" +
+                    "TRAINING:  SETPOS [X Y]   SETAREA [name]   SETRADIUS [5..100]\r\n" +
+                    "TELEPORT:  LQ   Q1 / Q2 / Q3   TP [Source,Destination]\r\n" +
                     "CHAT:      CHAT [all|party|guild|union|global] [message]\r\n" +
                     "PRIVATE:   CHAT private [player] [message]\r\n" +
                     "SYNC:      XCTP is internal; sent after captured teleport\r\n\r\n" +
@@ -429,6 +429,7 @@ namespace RSBot.XControl
                 case "N":
                 case "NOTRACE":
                     StopTrace();
+                    StopFollow();
                     break;
 
                 case "F":
@@ -444,6 +445,10 @@ namespace RSBot.XControl
                 case "RE":
                 case "RETURN":
                     RunPlayerAction("return scroll", () => Game.Player.UseReturnScroll());
+                    break;
+
+                case "SIT":
+                    ToggleSit();
                     break;
 
                 case "Z":
@@ -489,18 +494,20 @@ namespace RSBot.XControl
 
                 case "M":
                 case "MOUNT":
-                    RunPlayerAction("vehicle summon", () => Game.Player.SummonVehicle());
+                    TryMount(string.IsNullOrWhiteSpace(args) ? "transport" : args);
                     break;
 
                 case "D":
                 case "DS":
                 case "DISMOUNT":
-                    RunPlayerAction("dismount", () => Game.Player.Vehicle?.Dismount() ?? false);
+                    TryDismount(string.IsNullOrWhiteSpace(args) ? "transport" : args);
                     break;
 
                 case "K":
+                case "KILL":
                 case "TERM":
-                    RunPlayerAction("transport terminate", () => Game.Player.Transport?.Terminate() ?? false);
+                case "TERMINATE":
+                    TerminateTransportPets();
                     break;
 
                 case "MOVEON":
@@ -515,8 +522,16 @@ namespace RSBot.XControl
                     SetTrainingPosition(args);
                     break;
 
+                case "SETAREA":
+                    SetTrainingAreaByName(args);
+                    break;
+
                 case "SETRADIUS":
                     SetTrainingRadius(args);
+                    break;
+
+                case "LQ":
+                    TryTeleportNamed("Kings Valley", "Pharaoh tomb (beginner)");
                     break;
 
                 case "Q1":
@@ -541,6 +556,7 @@ namespace RSBot.XControl
 
                 case "DC":
                 case "DIS":
+                    Kernel.Bot?.Stop();
                     Kernel.Proxy?.Shutdown();
                     Log.Notify("[xControl] Disconnect requested by " + sender);
                     break;
@@ -604,7 +620,7 @@ namespace RSBot.XControl
 
             var summary = $"INV free={inventory.FreeSlots}/{inventory.NormalPartSize}; " +
                           (items.Length == 0 ? "empty" : string.Join(" | ", items));
-            SendPartyOrLeader(summary);
+            SendPrivateToLeader(summary);
         }
 
         private static void ReportPosition()
@@ -613,7 +629,7 @@ namespace RSBot.XControl
                 return;
 
             var pos = Game.Player.Position;
-            SendPartyOrLeader($"POS {Game.Player.Name} X={pos.X:F1} Y={pos.Y:F1} Region={pos.Region.Id}");
+            SendPrivateToLeader($"POS {Game.Player.Name} X={pos.X:F1} Y={pos.Y:F1} Region={pos.Region.Id}");
         }
 
         private static void UseItem(string search)
@@ -813,6 +829,39 @@ namespace RSBot.XControl
             }
         }
 
+        private static void SetTrainingAreaByName(string areaName)
+        {
+            if (!Game.Ready || Game.Player == null || string.IsNullOrWhiteSpace(areaName))
+                return;
+
+            try
+            {
+                var areas = PlayerConfig.GetArray<string>("RSBot.Training.Areas");
+                foreach (var rawArea in areas)
+                {
+                    var split = rawArea.Split("|", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    if (!Area.TryParse(split, out var area) ||
+                        !string.Equals(area.Name, areaName.Trim(), StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    PlayerConfig.Set("RSBot.Area.Region", area.Position.Region);
+                    PlayerConfig.Set("RSBot.Area.X", area.Position.XOffset);
+                    PlayerConfig.Set("RSBot.Area.Y", area.Position.YOffset);
+                    PlayerConfig.Set("RSBot.Area.Z", area.Position.ZOffset);
+                    PlayerConfig.Set("RSBot.Area.Radius", area.Radius);
+                    EventManager.FireEvent("OnSetTrainingArea");
+                    Log.Notify("[xControl] Training area selected: " + area.Name);
+                    return;
+                }
+
+                Log.Warn("[xControl] Saved training area not found: " + areaName);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[xControl] SETAREA failed: " + ex.Message);
+            }
+        }
+
         private static void SetTrainingRadius(string args)
         {
             if (!Game.Ready || !int.TryParse(args, NumberStyles.Integer,
@@ -867,6 +916,145 @@ namespace RSBot.XControl
                 ChatManager.Send(ChatType.Private, message, _lastCommandSender);
             else
                 Log.Notify("[xControl] " + message);
+        }
+
+        private static void SendPrivateToLeader(string message)
+        {
+            if (string.IsNullOrWhiteSpace(_lastCommandSender))
+            {
+                Log.Notify("[xControl] " + message);
+                return;
+            }
+
+            ChatManager.Send(ChatType.Private, message, _lastCommandSender);
+        }
+
+        private static void ToggleSit()
+        {
+            if (!IsConnected)
+                return;
+
+            var packet = new Packet(0x704F);
+            packet.WriteByte(0x04);
+            PacketManager.SendPacket(packet, PacketDestination.Server);
+            Log.Notify("[xControl] Sit/stand request sent.");
+        }
+
+        private static bool SendMountPacket(uint uniqueId, byte flag)
+        {
+            if (!IsConnected || uniqueId == 0)
+                return false;
+
+            var packet = new Packet(0x70CB);
+            packet.WriteByte(flag);
+            packet.WriteUInt(uniqueId);
+            PacketManager.SendPacket(packet, PacketDestination.Server);
+            return true;
+        }
+
+        private static void TryMount(string petType)
+        {
+            if (!IsConnected)
+                return;
+
+            var type = (petType ?? "transport").Trim().ToLowerInvariant();
+            var player = Game.Player;
+
+            if (type == "pick" || type == "pickup" || type == "grab" || type == "ability")
+            {
+                Log.Warn("[xControl] Ability/pick pets cannot be mounted.");
+                return;
+            }
+
+            bool success = false;
+
+            if (type == "horse" || type == "mount" || type == "ride")
+            {
+                if (player.Vehicle != null)
+                    success = SendMountPacket(player.Vehicle.UniqueId, 0x01);
+                else
+                {
+                    var horseItem = player.Inventory.FirstOrDefault(item =>
+                        item?.Record?.CodeName?.StartsWith("ITEM_COS_C_", StringComparison.OrdinalIgnoreCase) == true);
+                    success = horseItem?.Use() ?? false;
+                }
+            }
+            else if (type == "fellow" || type == "attack" || type == "pet")
+            {
+                success = player.Fellow != null && SendMountPacket(player.Fellow.UniqueId, 0x01);
+            }
+            else
+            {
+                if (player.JobTransport != null)
+                    success = SendMountPacket(player.JobTransport.UniqueId, 0x01);
+                else if (player.Vehicle != null)
+                    success = SendMountPacket(player.Vehicle.UniqueId, 0x01);
+                else
+                {
+                    var transportItem = player.Inventory.FirstOrDefault(item =>
+                        item?.Record?.CodeName?.StartsWith("ITEM_COS_T_", StringComparison.OrdinalIgnoreCase) == true);
+                    success = transportItem?.Use() ?? false;
+                }
+            }
+
+            Log.Notify("[xControl] Mount " + type + (success ? " requested." : " failed or unavailable."));
+        }
+
+        private static void TryDismount(string petType)
+        {
+            if (!IsConnected)
+                return;
+
+            var type = (petType ?? "transport").Trim().ToLowerInvariant();
+            var player = Game.Player;
+            bool success;
+
+            if (type == "pick" || type == "pickup" || type == "grab" || type == "ability")
+            {
+                Log.Warn("[xControl] Ability/pick pets cannot be dismounted through this command.");
+                return;
+            }
+
+            if (type == "fellow" || type == "attack" || type == "pet")
+                success = player.Fellow != null && SendMountPacket(player.Fellow.UniqueId, 0x00);
+            else if (player.Vehicle != null)
+                success = SendMountPacket(player.Vehicle.UniqueId, 0x00);
+            else if (player.AbilityPet != null)
+                success = SendMountPacket(player.AbilityPet.UniqueId, 0x00);
+            else
+                success = false;
+
+            Log.Notify("[xControl] Dismount " + type +
+                       (success ? " requested." : " failed or no matching active pet."));
+        }
+
+        private static void TerminateTransportPets()
+        {
+            if (!IsConnected)
+                return;
+
+            var jobTransport = Game.Player.JobTransport;
+            var transport = Game.Player.Transport;
+
+            if (jobTransport == null && transport == null)
+            {
+                Log.Warn("[xControl] No active transport pet to terminate.");
+                return;
+            }
+
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                await System.Threading.Tasks.Task.Delay(500);
+                try
+                {
+                    jobTransport?.Terminate();
+                    transport?.Terminate();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[xControl] Transport terminate failed: " + ex.Message);
+                }
+            });
         }
 
         private static void TryTeleportByIndex(int index)
