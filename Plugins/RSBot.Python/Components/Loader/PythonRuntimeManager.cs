@@ -64,6 +64,8 @@ for name, plugin in plugins.items():
 
 from RSBot.Python.Components.API.GUI import WFAPI
 RSBot.GUI = WFAPI.GUI
+if hasattr(RSBot, 'gui'):
+    RSBot.gui.GUI = WFAPI.GUI
 "
                     );
                     IsInitialized = true;
