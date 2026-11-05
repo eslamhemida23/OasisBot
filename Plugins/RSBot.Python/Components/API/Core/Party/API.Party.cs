@@ -1,4 +1,6 @@
+using System;
 using Python.Runtime;
+using RSBot.Python.Components.API.Interface;
 using RSBot.Core;
 using RSBot.Core.Components;
 using RSBot.Core.Objects.Spawn;
