@@ -142,8 +142,8 @@ nearby = entity.get_entity_by_id(123456)
 
 destinations = teleport.get_destinations()
 links = teleport.get_links(portal_uid)
-teleport.teleport("NPC_CODENAME", destination_id)
-# Or resolve by destination code name:
+teleport.teleport_by_uid(npc_uid, destination_id)
+# Or resolve the NPC by code name and destination by code name:
 teleport.teleport_by_name("NPC_CODENAME", "DESTINATION_CODENAME")
 ```
 
