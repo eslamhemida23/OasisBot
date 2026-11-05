@@ -29,6 +29,9 @@ jobs:
       - name: Build RSBot.Chat
         run: msbuild Plugins/RSBot.Chat/RSBot.Chat.csproj /restore /m /p:Configuration=Release /p:Platform=x86
 
+      - name: Build RSBot.XControl
+        run: msbuild Plugins/RSBot.XControl/RSBot.XControl.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+
       - name: Build RSBot.Python
         run: msbuild Plugins/RSBot.Python/RSBot.Python.csproj /restore /m /p:Configuration=Release /p:Platform=x86
 
@@ -47,21 +50,24 @@ jobs:
         run: |
           $chat = "Build/Data/Plugins/RSBot.Chat.dll"
           $python = "Build/Data/Plugins/RSBot.Python.dll"
+          $xcontrol = "Build/Data/Plugins/RSBot.XControl.dll"
           if (!(Test-Path $chat)) { throw "Missing build output: $chat" }
           if (!(Test-Path $python)) { throw "Missing build output: $python" }
+          if (!(Test-Path $xcontrol)) { throw "Missing build output: $xcontrol" }
           if (!(Test-Path "Build/Data/Python/Plugins/OasisApiTest.py")) {
             throw "Missing staged Python API test plugin."
           }
-          Get-Item $chat, $python, "Build/Data/Python/Plugins/OasisApiTest.py" |
+          Get-Item $chat, $python, $xcontrol, "Build/Data/Python/Plugins/OasisApiTest.py" |
             Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
 
       - name: Upload compiled DLLs
         uses: actions/upload-artifact@v4
         with:
-          name: OasisBot-Chat-Python-DLLs
+          name: OasisBot-Chat-Python-XControl-DLLs
           path: |
             Build/Data/Plugins/RSBot.Chat.dll
             Build/Data/Plugins/RSBot.Python.dll
+            Build/Data/Plugins/RSBot.XControl.dll
             Build/Data/Python/Plugins/OasisApiTest.py
           if-no-files-found: error
           retention-days: 7
