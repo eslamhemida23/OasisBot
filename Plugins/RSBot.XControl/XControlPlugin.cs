@@ -54,7 +54,7 @@ namespace RSBot.XControl
         public string DisplayName => "xControl";
         public bool DisplayAsTab => true;
         public int Index => 85;
-        public bool RequireIngame => false;
+        public bool RequireIngame => true;
         public Control View => this;
 
         public XControlView()
@@ -928,9 +928,17 @@ namespace RSBot.XControl
                 return null;
 
             return Game.ReferenceManager.TeleportData.FirstOrDefault(tp =>
-                string.Equals(tp.CodeName, name, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tp.ZoneName, name, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tp.ZoneName128, name, StringComparison.OrdinalIgnoreCase));
+            {
+                var npcName = tp.Character?.NameStrID;
+                var translatedNpcName = string.IsNullOrWhiteSpace(npcName)
+                    ? string.Empty
+                    : Game.ReferenceManager.GetTranslation(npcName);
+
+                return string.Equals(tp.CodeName, name, StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(tp.ZoneName, name, StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(tp.ZoneName128, name, StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(translatedNpcName, name, StringComparison.OrdinalIgnoreCase);
+            });
         }
 
         private static void TryTeleportNamed(string args)
