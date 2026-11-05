@@ -258,7 +258,7 @@ namespace RSBot.Python.Components.API.Core.Inventory
 
         public bool use_item(int slot)
         {
-            if (Game.Player == null || slot < 0 || slot > byte.MaxValue)
+            if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true || slot < 0 || slot > byte.MaxValue)
                 return false;
 
             var item = Game.Player.Inventory.GetItemAt((byte)slot);
@@ -267,7 +267,7 @@ namespace RSBot.Python.Components.API.Core.Inventory
 
         public bool use_item_on_slot(int sourceSlot, int destinationSlot)
         {
-            if (Game.Player == null ||
+            if (Game.Player == null || Kernel.Proxy?.IsConnectedToAgentserver != true ||
                 sourceSlot < 0 || sourceSlot > byte.MaxValue ||
                 destinationSlot < 0 || destinationSlot > byte.MaxValue)
                 return false;
