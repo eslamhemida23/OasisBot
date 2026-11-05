@@ -29,8 +29,8 @@ namespace RSBot.XControl
             XControlService.Initialize();
             EventManager.SubscribeEvent(
                 "OnChatMessage",
-                new Action<byte, string, string>(XControlService.OnChatMessage));
-            EventManager.SubscribeEvent("OnTick", new Action(XControlService.OnTick));
+                new System.Action<byte, string, string>(XControlService.OnChatMessage));
+            EventManager.SubscribeEvent("OnTick", new System.Action(XControlService.OnTick));
             EventManager.SubscribeEvent("OnEnterGame", new Action(XControlService.LoadLeaders));
             Log.Notify("[xControl] Native C# plugin initialized.");
         }
@@ -175,7 +175,7 @@ namespace RSBot.XControl
 
             if (InvokeRequired)
             {
-                try { BeginInvoke(new Action(RefreshLeaders)); } catch { }
+                try { BeginInvoke(new System.Action(RefreshLeaders)); } catch { }
                 return;
             }
 
@@ -193,7 +193,7 @@ namespace RSBot.XControl
 
             if (InvokeRequired)
             {
-                try { BeginInvoke(new Action<string>(SetStatus), message); } catch { }
+                try { BeginInvoke(new System.Action<string>(SetStatus), message); } catch { }
                 return;
             }
 
@@ -217,8 +217,8 @@ namespace RSBot.XControl
         private static uint _traceTargetId;
         private static PendingTeleport _pendingTeleport;
 
-        public static event Action LeadersChanged;
-        public static event Action<string> StatusChanged;
+        public static event System.Action LeadersChanged;
+        public static event System.Action<string> StatusChanged;
 
         private sealed class PendingTeleport
         {
