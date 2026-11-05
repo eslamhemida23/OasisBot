@@ -7,6 +7,7 @@ using RSBot.Core.Network;
 using RSBot.Core.Objects;
 using RSBot.Core.Objects.Spawn;
 using RSBot.Python.Components.API.Interface;
+using RSBot.Python.Components.API.Utils;
 using RSBot.Python.Views;
 
 namespace RSBot.Python.Components.API.Core.NPC;
@@ -68,15 +69,15 @@ public class NpcAPI : IPythonPlugin
             var state = Game.Player?.State.DialogState;
             if (state == null)
             {
-                result.SetItem("is_in_dialog", new PyBool(false));
+                result.SetItem("is_in_dialog", PythonBool.FromBoolean(false));
                 return result;
             }
 
-            result.SetItem("is_in_dialog", new PyBool(state.IsInDialog));
+            result.SetItem("is_in_dialog", PythonBool.FromBoolean(state.IsInDialog));
             result.SetItem("npc_uid", new PyInt(state.Npc?.UniqueId ?? 0));
             result.SetItem("npc_name", new PyString(state.Npc?.Record?.GetRealName() ?? string.Empty));
             result.SetItem("talk_option", new PyInt((byte)state.TalkOption));
-            result.SetItem("is_speciality_time", new PyBool(state.IsSpecialityTime));
+            result.SetItem("is_speciality_time", PythonBool.FromBoolean(state.IsSpecialityTime));
             return result;
         }
     }
