@@ -54,6 +54,7 @@ internal class ChatResponse : IPacketHandler
                     if (!SpawnManager.TryGetEntity<SpawnedPlayer>(senderId, out var player))
                         return;
                     EventManager.FireEvent("OnMessageReceived", message, player.Name, ChatType.All);
+                    EventManager.FireEvent("OnChatMessage", (byte)ChatType.All, message, player.Name);
                 }
                 else
                 {
@@ -82,6 +83,8 @@ internal class ChatResponse : IPacketHandler
                 message = ReadChatWithLinkedItems(message);
 
                 View.Instance.AppendMessage(message, sender, type);
+                EventManager.FireEvent("OnMessageReceived", message, sender, type);
+                EventManager.FireEvent("OnChatMessage", (byte)type, message, sender);
                 break;
         }
     }
