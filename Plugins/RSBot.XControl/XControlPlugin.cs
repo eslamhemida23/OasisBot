@@ -11,6 +11,7 @@ using RSBot.Core.Components;
 using RSBot.Core.Event;
 using RSBot.Core.Network;
 using RSBot.Core.Objects;
+using RSBot.Core.Objects.Cos;
 using RSBot.Core.Objects.Spawn;
 using RSBot.Core.Plugins;
 
@@ -144,7 +145,8 @@ namespace RSBot.XControl
         private static double _followDistance = 10;
         private static int _lastFollowTick;
         private static int _lastTick;
-        private static int _followMoveInProgress;
+        private static Position _lastFollowDestination;
+        private static bool _hasLastFollowDestination;
         private static bool _followExactPosition;
         private static PendingTeleport _pendingTeleport;
 
@@ -295,16 +297,17 @@ namespace RSBot.XControl
 
         public static void OnChatMessage(byte type, string message, string sender)
         {
-            if (!Game.Ready || Game.Player == null ||
-                string.IsNullOrWhiteSpace(message) ||
-                string.Equals(sender, Game.Player.Name, StringComparison.OrdinalIgnoreCase))
+            if (!Game.Ready || Game.Player == null || string.IsNullOrWhiteSpace(message))
                 return;
 
             // Commands are accepted from Party chat only.
             if (type != (byte)ChatType.Party)
                 return;
 
-            if (!IsLeader(sender))
+            // The server echoes the leader's own Party message back to the leader.
+            // Allow that local echo so commands such as START also execute on the leader.
+            var isLocalSender = string.Equals(sender, Game.Player.Name, StringComparison.OrdinalIgnoreCase);
+            if (!isLocalSender && !IsLeader(sender))
                 return;
 
             try
@@ -597,21 +600,29 @@ namespace RSBot.XControl
             if (!IsConnected || string.IsNullOrWhiteSpace(playerName))
                 return;
 
-            if (!SpawnManager.TryGetEntity<SpawnedPlayer>(
-                p => string.Equals(p.Name, playerName, StringComparison.OrdinalIgnoreCase),
-                out var target))
+            if (string.Equals(playerName, Game.Player.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Notify("[xControl] Leader does not need to follow itself.");
+                return;
+            }
+
+            var partyTarget = Game.Party?.GetMemberByName(playerName);
+            if (partyTarget == null &&
+                !SpawnManager.TryGetEntity<SpawnedPlayer>(
+                    p => string.Equals(p.Name, playerName, StringComparison.OrdinalIgnoreCase),
+                    out _))
             {
                 Log.Warn("[xControl] Trace target not found: " + playerName);
                 return;
             }
 
-            // T/TRACE is a zero-gap formation follow, not the game's built-in trace packet.
-            _followPlayer = target.Name;
+            _followPlayer = partyTarget?.Name ?? playerName;
             _followDistance = 0;
             _followExactPosition = true;
             _followEnabled = true;
             _lastFollowTick = 0;
-            Log.Notify("[xControl] Exact-position follow started: " + target.Name);
+            _hasLastFollowDestination = false;
+            Log.Notify("[xControl] Exact-position follow started: " + _followPlayer);
         }
 
         private static void StopTrace()
@@ -637,6 +648,7 @@ namespace RSBot.XControl
             _followExactPosition = false;
             _followEnabled = true;
             _lastFollowTick = 0;
+            _hasLastFollowDestination = false;
             Log.Notify($"[xControl] Following {target} at {distance:0.#}m.");
         }
 
@@ -645,6 +657,7 @@ namespace RSBot.XControl
             _followEnabled = false;
             _followExactPosition = false;
             _followPlayer = string.Empty;
+            _hasLastFollowDestination = false;
             Log.Notify("[xControl] Follow stopped.");
         }
 
@@ -662,77 +675,155 @@ namespace RSBot.XControl
             UpdatePendingTeleport();
         }
 
-        private static void UpdateFollow()
+        private static bool TryGetFollowTargetPosition(out Position position)
         {
-            if (!_followEnabled || !IsConnected)
-                return;
+            position = default;
 
-            if (!SpawnManager.TryGetEntity<SpawnedPlayer>(
+            // Party member positions keep updating even after the leader leaves the local
+            // spawn/visibility range. SpawnManager is retained as a fallback for non-party targets.
+            var partyMember = Game.Party?.GetMemberByName(_followPlayer);
+            if (partyMember != null && partyMember.Position.Region.Id != 0)
+            {
+                position = partyMember.Position;
+                return true;
+            }
+
+            if (SpawnManager.TryGetEntity<SpawnedPlayer>(
                 p => string.Equals(p.Name, _followPlayer, StringComparison.OrdinalIgnoreCase),
                 out var target))
+            {
+                position = target.Position;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void UpdateFollow()
+        {
+            if (!_followEnabled || !IsConnected || !TryGetFollowTargetPosition(out var leader))
                 return;
 
             var me = Game.Player.Position;
-            var leader = target.Position;
 
-            if (me.Region.Id != leader.Region.Id)
+            // A follower can cross normal map sector boundaries while chasing. Do not stop
+            // just because the sector IDs differ. Dungeon coordinates are local to one region.
+            if (me.Region.IsDungeon != leader.Region.IsDungeon ||
+                (me.Region.IsDungeon && me.Region.Id != leader.Region.Id))
                 return;
 
-            var dx = me.X - leader.X;
-            var dy = me.Y - leader.Y;
+            var dx = leader.X - me.X;
+            var dy = leader.Y - me.Y;
             var distance = Math.Sqrt(dx * dx + dy * dy);
-
-            if (_followExactPosition)
-            {
-                // Stop only when practically on top of the leader. Otherwise send the
-                // leader's complete Position (including region and height) as our destination.
-                if (distance <= 0.25)
-                    return;
-            }
-            else
-            {
-                if (distance <= _followDistance + 1.5)
-                    return;
-
-                if (distance < 0.01)
-                    return;
-            }
 
             Position destination;
             if (_followExactPosition)
             {
+                if (distance <= 0.25)
+                {
+                    _hasLastFollowDestination = false;
+                    return;
+                }
+
                 destination = leader;
             }
             else
             {
+                if (distance <= _followDistance + 1.5 || distance < 0.01)
+                    return;
+
                 var ratio = _followDistance / distance;
-                var destinationX = leader.X + dx * ratio;
-                var destinationY = leader.Y + dy * ratio;
-                destination = new Position(
-                    (float)destinationX,
-                    (float)destinationY,
-                    new RSBot.Core.Objects.Region(leader.Region.Id));
+                var destinationX = leader.X - dx * ratio;
+                var destinationY = leader.Y - dy * ratio;
+                destination = new Position(destinationX, destinationY, leader.Region)
+                {
+                    ZOffset = leader.ZOffset
+                };
             }
 
-            if (System.Threading.Interlocked.CompareExchange(ref _followMoveInProgress, 1, 0) != 0)
+            // The game's Player.MoveTo waits for a 0xB021 acknowledgement. During follow this
+            // can hold the only movement worker for seconds if an acknowledgement is missed.
+            // Use the exact same movement packet without a blocking callback instead.
+            var distanceToDestination = me.DistanceTo(destination);
+            if (distanceToDestination <= 0.25)
                 return;
 
-            System.Threading.Tasks.Task.Run(() =>
+            // Player.MoveTo rejects destinations more than 150m away. Follow in short legs
+            // so a character can catch up even after crossing several sectors.
+            if (distanceToDestination > 120)
             {
-                try
+                var legRatio = 100d / distanceToDestination;
+                var waypointX = me.X + (destination.X - me.X) * legRatio;
+                var waypointY = me.Y + (destination.Y - me.Y) * legRatio;
+                var waypointZ = me.ZOffset + (destination.ZOffset - me.ZOffset) * (float)legRatio;
+                destination = new Position((float)waypointX, (float)waypointY, destination.Region)
                 {
-                    if (_followEnabled && Game.Player != null)
-                        Game.Player.MoveTo(destination, false);
-                }
-                catch (Exception ex)
-                {
-                    Log.Debug("[xControl] Follow move failed: " + ex.Message);
-                }
-                finally
-                {
-                    System.Threading.Interlocked.Exchange(ref _followMoveInProgress, 0);
-                }
-            });
+                    ZOffset = waypointZ
+                };
+            }
+
+            var now = Environment.TickCount;
+            var destinationChanged = !_hasLastFollowDestination ||
+                                     _lastFollowDestination.Region.Id != destination.Region.Id ||
+                                     _lastFollowDestination.DistanceTo(destination) >= 2.0;
+            var retryDue = now - _lastFollowTick >= 2500;
+
+            // Retarget when the leader has moved, otherwise let the current move finish.
+            // If no movement acknowledgement/state update arrives, retry after 2.5 seconds.
+            if (now - _lastFollowTick < 750 ||
+                (!destinationChanged && (!retryDue || Game.Player.Movement.Moving)))
+                return;
+
+            if (SendFollowMovement(destination))
+            {
+                _lastFollowDestination = destination;
+                _hasLastFollowDestination = true;
+                _lastFollowTick = now;
+            }
+        }
+
+        private static bool SendFollowMovement(Position destination)
+        {
+            if (!IsConnected)
+                return false;
+
+            Packet packet;
+            if (Game.Player.Vehicle != null)
+            {
+                // Same packet format used by Cos.MoveTo, but without blocking for 0xB021.
+                packet = new Packet(0x70C5);
+                packet.WriteUInt(Game.Player.Vehicle.UniqueId);
+                packet.WriteByte((byte)CosCommand.Move);
+                packet.WriteByte(1);
+                packet.WriteUShort(destination.Region.Id);
+            }
+            else
+            {
+                packet = new Packet(0x7021);
+                packet.WriteByte(1);
+
+                // Player.MoveTo uses the current dungeon region; regular-world destinations
+                // carry their calculated destination region.
+                packet.WriteUShort(Game.Player.IsInDungeon
+                    ? Game.Player.Position.Region.Id
+                    : destination.Region.Id);
+            }
+
+            if (!destination.Region.IsDungeon)
+            {
+                packet.WriteShort(destination.XOffset);
+                packet.WriteShort(destination.ZOffset);
+                packet.WriteShort(destination.YOffset);
+            }
+            else
+            {
+                packet.WriteInt(destination.XOffset);
+                packet.WriteInt(destination.ZOffset);
+                packet.WriteInt(destination.YOffset);
+            }
+
+            PacketManager.SendPacket(packet, PacketDestination.Server);
+            return true;
         }
 
         private static void RandomMovement(string args)
