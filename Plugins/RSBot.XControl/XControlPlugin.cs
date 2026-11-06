@@ -740,7 +740,7 @@ namespace RSBot.XControl
                 var ratio = _followDistance / distance;
                 var destinationX = leader.X - dx * ratio;
                 var destinationY = leader.Y - dy * ratio;
-                destination = new Position(destinationX, destinationY, leader.Region)
+                destination = new Position((float)destinationX, (float)destinationY, leader.Region)
                 {
                     ZOffset = leader.ZOffset
                 };
