@@ -678,8 +678,9 @@ namespace RSBot.XControl
                 return;
 
             var now = Environment.TickCount;
-            // Keep exact trace responsive; the previous 500ms polling interval added visible lag.
-            if (now - _lastTick < 100)
+            // OnTick is raised by Kernel roughly every 10ms. Poll follow at 30ms
+            // to keep leader position updates responsive without doing work every tick.
+            if (now - _lastTick < 30)
                 return;
             _lastTick = now;
 
@@ -788,7 +789,7 @@ namespace RSBot.XControl
                 _hasLastFollowPlayerPosition = true;
             }
 
-            var retargetThreshold = _followExactPosition ? 0.35 : 1.5;
+            var retargetThreshold = _followExactPosition ? 0.20 : 1.5;
             var destinationChanged = !_hasLastFollowDestination ||
                                      _lastFollowDestination.Region.Id != destination.Region.Id ||
                                      _lastFollowDestination.DistanceTo(destination) >= retargetThreshold;
@@ -796,7 +797,7 @@ namespace RSBot.XControl
 
             // Retarget when the leader moves. If the follower has not physically changed position
             // for 2.5 seconds, resend even when the client still reports Movement.Moving = true.
-            var minimumCommandInterval = _followExactPosition ? 150 : 350;
+            var minimumCommandInterval = _followExactPosition ? 80 : 350;
             if (now - _lastFollowTick < minimumCommandInterval ||
                 (!destinationChanged && !followerStalled))
                 return;
