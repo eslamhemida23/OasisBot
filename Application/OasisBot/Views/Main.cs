@@ -617,6 +617,14 @@ public partial class Main : UIWindow
     /// <param name="e">The <see cref="FormClosingEventArgs" /> instance containing the event data.</param>
     private void Main_FormClosing(object sender, FormClosingEventArgs e)
     {
+        if (Program.ManagerControlled)
+        {
+            GlobalConfig.Save();
+            PlayerConfig.Save();
+            ClientManager.Kill();
+            Environment.Exit(0);
+        }
+
         if (Kernel.Proxy == null || !Kernel.Proxy.ClientConnected || !GeneralConfig.Get("RSBot.showExitDialog", true))
         {
             GlobalConfig.Save();
@@ -663,6 +671,14 @@ public partial class Main : UIWindow
     /// <param name="e">The <see cref="EventArgs" /> instance containing the event data.</param>
     private void menuItemExit_Click(object sender, EventArgs e)
     {
+        if (Program.ManagerControlled)
+        {
+            GlobalConfig.Save();
+            PlayerConfig.Save();
+            ClientManager.Kill();
+            Environment.Exit(0);
+        }
+
         if (Kernel.Proxy == null || !Kernel.Proxy.ClientConnected || !GeneralConfig.Get("RSBot.showExitDialog", true))
         {
             GlobalConfig.Save();
