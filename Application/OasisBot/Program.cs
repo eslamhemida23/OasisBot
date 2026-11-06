@@ -21,6 +21,8 @@ internal static class Program
     [DllImport("kernel32.dll")]
     private static extern bool FreeConsole();
 
+    public static bool ManagerControlled { get; private set; }
+
     public static string AssemblyTitle = Assembly
         .GetExecutingAssembly()
         .GetCustomAttribute<AssemblyProductAttribute>()
@@ -50,6 +52,9 @@ internal static class Program
 
         [Option("headless", Required = false, HelpText = "Start the bot without graphical user interface")]
         public bool Headless { get; set; }
+
+        [Option("manager-controlled", Required = false, HelpText = "Enable orderly shutdown when controlled by OasisBot Manager")]
+        public bool ManagerControlled { get; set; }
     }
 
     private static void DisplayHelp(ParserResult<CommandLineOptions> result)
@@ -153,6 +158,8 @@ internal static class Program
 
     private static void RunOptions(CommandLineOptions options)
     {
+        ManagerControlled = options.ManagerControlled;
+
         if (options.LaunchClient)
         {
             Kernel.LaunchMode = "client";
