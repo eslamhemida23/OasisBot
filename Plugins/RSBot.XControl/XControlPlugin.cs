@@ -147,6 +147,9 @@ namespace RSBot.XControl
         private static int _lastTick;
         private static Position _lastFollowDestination;
         private static bool _hasLastFollowDestination;
+        private static Position _lastFollowPlayerPosition;
+        private static int _lastFollowProgressTick;
+        private static bool _hasLastFollowPlayerPosition;
         private static bool _followExactPosition;
         private static PendingTeleport _pendingTeleport;
 
@@ -627,6 +630,7 @@ namespace RSBot.XControl
             _followEnabled = true;
             _lastFollowTick = 0;
             _hasLastFollowDestination = false;
+            _hasLastFollowPlayerPosition = false;
             Log.Notify("[xControl] Exact-position follow started: " + _followPlayer);
         }
 
@@ -654,6 +658,7 @@ namespace RSBot.XControl
             _followEnabled = true;
             _lastFollowTick = 0;
             _hasLastFollowDestination = false;
+            _hasLastFollowPlayerPosition = false;
             Log.Notify($"[xControl] Following {target} at {distance:0.#}m.");
         }
 
@@ -663,6 +668,7 @@ namespace RSBot.XControl
             _followExactPosition = false;
             _followPlayer = string.Empty;
             _hasLastFollowDestination = false;
+            _hasLastFollowPlayerPosition = false;
             Log.Notify("[xControl] Follow stopped.");
         }
 
@@ -684,20 +690,21 @@ namespace RSBot.XControl
         {
             position = default;
 
-            // Party member positions keep updating even after the leader leaves the local
-            // spawn/visibility range. SpawnManager is retained as a fallback for non-party targets.
-            var partyMember = Game.Party?.GetMemberByName(_followPlayer);
-            if (partyMember != null && partyMember.Position.Region.Id != 0)
-            {
-                position = partyMember.Position;
-                return true;
-            }
-
+            // Prefer the live spawned entity while visible; its movement is interpolated every
+            // client tick. PartyMember.Position is a less frequent network snapshot.
             if (SpawnManager.TryGetEntity<SpawnedPlayer>(
                 p => string.Equals(p.Name, _followPlayer, StringComparison.OrdinalIgnoreCase),
                 out var target))
             {
                 position = target.Position;
+                return true;
+            }
+
+            // Use the latest party snapshot when the leader is outside spawn visibility.
+            var partyMember = Game.Party?.GetMemberByName(_followPlayer);
+            if (partyMember != null && partyMember.Position.Region.Id != 0)
+            {
+                position = partyMember.Position;
                 return true;
             }
 
@@ -768,15 +775,26 @@ namespace RSBot.XControl
             }
 
             var now = Environment.TickCount;
+
+            // Detect actual progress from position changes, not Movement.Moving. Some servers
+            // leave that flag set after blocked/rejected movement, disabling retries forever.
+            if (!_hasLastFollowPlayerPosition ||
+                me.Region.Id != _lastFollowPlayerPosition.Region.Id ||
+                me.DistanceTo(_lastFollowPlayerPosition) >= 0.75)
+            {
+                _lastFollowPlayerPosition = me;
+                _lastFollowProgressTick = now;
+                _hasLastFollowPlayerPosition = true;
+            }
+
             var destinationChanged = !_hasLastFollowDestination ||
                                      _lastFollowDestination.Region.Id != destination.Region.Id ||
-                                     _lastFollowDestination.DistanceTo(destination) >= 2.0;
-            var retryDue = now - _lastFollowTick >= 2500;
+                                     _lastFollowDestination.DistanceTo(destination) >= 1.5;
+            var followerStalled = now - _lastFollowProgressTick >= 2500;
 
-            // Retarget when the leader has moved, otherwise let the current move finish.
-            // If no movement acknowledgement/state update arrives, retry after 2.5 seconds.
-            if (now - _lastFollowTick < 750 ||
-                (!destinationChanged && (!retryDue || Game.Player.Movement.Moving)))
+            // Retarget when the leader moves. If the follower has not physically changed position
+            // for 2.5 seconds, resend even when the client still reports Movement.Moving = true.
+            if (now - _lastFollowTick < 750 || (!destinationChanged && !followerStalled))
                 return;
 
             if (SendFollowMovement(destination))
