@@ -1,0 +1,65 @@
+name: Build OasisBot Manager
+
+on:
+  push:
+    branches:
+      - feature/oasisbot-manager
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build OasisBot Manager
+        run: msbuild Manager/OasisBot.Manager.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+
+      - name: Build OasisBot with manager shutdown support
+        run: msbuild Application/OasisBot/OasisBot.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+
+      - name: Verify and package outputs
+        shell: pwsh
+        run: |
+          $managerOutput = "Manager/bin/Release/net8.0-windows"
+          $managerExe = Join-Path $managerOutput "OasisBot.Manager.exe"
+          $botExe = "Build/OasisBot.exe"
+
+          if (!(Test-Path $managerExe)) {
+            throw "Missing Manager executable: $managerExe"
+          }
+
+          if (!(Test-Path $botExe)) {
+            throw "Missing updated bot executable: $botExe"
+          }
+
+          $stage = "OasisBot-Manager-Bundle"
+          New-Item -ItemType Directory -Force -Path "$stage/Manager", "$stage/BotUpdate" | Out-Null
+          Copy-Item "$managerOutput/*" "$stage/Manager/" -Recurse -Force
+          Copy-Item $botExe "$stage/BotUpdate/OasisBot.exe" -Force
+
+          Compress-Archive -Path "$stage/*" -DestinationPath "OasisBot-Manager-Bundle.zip" -Force
+          Get-Item $managerExe, $botExe, "OasisBot-Manager-Bundle.zip" |
+            Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Upload Manager bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: OasisBot-Manager-Bundle
+          path: OasisBot-Manager-Bundle.zip
+          if-no-files-found: error
+          retention-days: 14
