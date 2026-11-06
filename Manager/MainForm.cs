@@ -196,6 +196,7 @@ internal sealed class MainForm : Form
         selected.Character = edited.Character;
         selected.LaunchMode = edited.LaunchMode;
         selected.RefreshDisplay();
+        _grid.Refresh();
         SaveEntries();
     }
 
