@@ -35,7 +35,7 @@ jobs:
       - name: Verify and package outputs
         shell: pwsh
         run: |
-          $managerOutput = "Manager/bin/Release/net8.0-windows"
+          $managerOutput = "Manager/bin/x86/Release/net8.0-windows"
           $managerExe = Join-Path $managerOutput "OasisBot.Manager.exe"
           $botExe = "Build/OasisBot.exe"
 
