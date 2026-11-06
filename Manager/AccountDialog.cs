@@ -190,10 +190,25 @@ internal sealed class AccountDialog : Form
             return;
         }
 
+        if (profile.Equals("Profiles", StringComparison.OrdinalIgnoreCase) || profile.Equals("Settings", StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(this, "Profiles and Settings are reserved by OasisBot. Choose another profile name.", "Reserved profile name", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _profile.Focus();
+            return;
+        }
+
         if (profile.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || profile.Contains('/') || profile.Contains('\\'))
         {
             MessageBox.Show(this, "The profile name contains characters that cannot be used in a profile folder.", "Invalid profile", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             _profile.Focus();
+            return;
+        }
+
+        var character = _character.Text.Trim();
+        if (character.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || character.Contains('/') || character.Contains('\\'))
+        {
+            MessageBox.Show(this, "The character name contains characters that cannot be used in a character settings file.", "Invalid character", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _character.Focus();
             return;
         }
 
