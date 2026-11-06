@@ -1,3 +1,6 @@
+using System;
+using System.Windows.Forms;
+
 namespace OasisBot.Manager;
 
 internal static class Program
