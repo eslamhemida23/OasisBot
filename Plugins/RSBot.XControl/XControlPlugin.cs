@@ -306,9 +306,14 @@ namespace RSBot.XControl
 
             // The server echoes the leader's own Party message back to the leader.
             // Allow that local echo so commands such as START also execute on the leader.
-            var isLocalSender = string.Equals(sender, Game.Player.Name, StringComparison.OrdinalIgnoreCase);
+            var isLocalSender = string.Equals(
+                NormalizePlayerName(sender), Game.Player.Name, StringComparison.OrdinalIgnoreCase);
             if (!isLocalSender && !IsLeader(sender))
                 return;
+
+            // Use the exact local character name for self-issued commands (including T).
+            if (isLocalSender)
+                sender = Game.Player.Name;
 
             try
             {
