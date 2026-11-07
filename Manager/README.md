@@ -30,6 +30,10 @@ A small external Windows application for managing multiple OasisBot instances.
 
 The Manager does not store game passwords. It only stores the bot executable, profile, character name, and launch mode.
 
+When the Manager creates or repairs a profile, OasisBot copies the shared game/server settings from the configured Default profile (or another configured profile if Default is not configured). Account passwords, username/login fields, and auto-login files are not copied.
+
+If a bot exits unexpectedly, the Manager keeps its last PID and displays the process exit code. Select the instance and use Open log to read its diagnostic log under %LOCALAPPDATA%\OasisBotManager\Logs.
+
 ## Important
 
 Each simultaneously running instance from the same installation must use a different profile. OasisBot stores the profile's main settings in User\<Profile>.rs and character settings under User\<Profile>\; running two processes on one profile can cause configuration conflicts.
