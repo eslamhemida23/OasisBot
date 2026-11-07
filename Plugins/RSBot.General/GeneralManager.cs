@@ -233,6 +233,17 @@ namespace RSBot.General
 
         private async Task StartClientProcess()
         {
+            // A relogin callback can race with another startup/disconnect callback.
+            // Never replace the proxy or report a launch failure while the prior client is alive.
+            if (ClientManager.IsRunning)
+            {
+                Log.Warn(
+                    "Automatic client start was skipped because the previous Silkroad client process is still running. " +
+                    "The existing client and proxy session were left untouched."
+                );
+                return;
+            }
+
             EventManager.FireEvent("OnClientProcessStarted");
             Log.Notify("Preparing the game proxy before starting the Silkroad client...");
 
@@ -251,7 +262,16 @@ namespace RSBot.General
 
                 if (!startedResult)
                 {
-                    Log.Error("ClientManager.Start returned false. The Silkroad client process was not started.");
+                    if (ClientManager.IsRunning)
+                    {
+                        Log.Warn(
+                            "ClientManager.Start skipped a duplicate launch because a Silkroad client is still running. " +
+                            "Keeping the existing proxy session active."
+                        );
+                        return;
+                    }
+
+                    Log.Error("ClientManager.Start returned false and no Silkroad client process is running.");
                     OnExitClient();
                     Log.WarnLang("ClientStartingError");
                     return;
@@ -262,8 +282,16 @@ namespace RSBot.General
             catch (System.Exception error)
             {
                 Log.Error("Automatic Silkroad client restart failed: " + error);
-                OnExitClient();
-                Log.WarnLang("ClientStartingError");
+
+                if (!ClientManager.IsRunning)
+                {
+                    OnExitClient();
+                    Log.WarnLang("ClientStartingError");
+                }
+                else
+                {
+                    Log.Warn("The existing Silkroad client is still running; its proxy session will not be shut down.");
+                }
             }
         }
 
