@@ -75,6 +75,7 @@ internal sealed class BotEntry : INotifyPropertyChanged
     public void RefreshDisplay()
     {
         OnPropertyChanged(nameof(ProcessIdDisplay));
+        OnPropertyChanged(nameof(ExitCodeDisplay));
         OnPropertyChanged(nameof(UptimeDisplay));
         OnPropertyChanged(nameof(Status));
     }
@@ -119,6 +120,7 @@ internal sealed class BotEntry : INotifyPropertyChanged
         AttachedProcess = null;
         LastProcessId = 0;
         LastProcessStartUtc = null;
+        LastExitCode = null;
         Status = "Stopped";
         RefreshDisplay();
     }
