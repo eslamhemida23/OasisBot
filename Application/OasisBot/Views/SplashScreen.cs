@@ -123,6 +123,13 @@ public partial class SplashScreen : UIWindow
     /// </param>
     private async void ReferenceDataLoaderCompleted(object sender, RunWorkerCompletedEventArgs e)
     {
+        if (Program.ManagerStopRequested)
+        {
+            Program.WriteManagerDiagnostic("Skipping client launch because Manager requested STOP during startup.");
+            Close();
+            return;
+        }
+
         if (e.Error != null)
         {
             Program.WriteManagerDiagnostic("Reference data loading failed: " + e.Error);
