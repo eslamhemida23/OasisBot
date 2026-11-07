@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -337,6 +338,7 @@ internal sealed class MainForm : Form
                 Environment.NewLine + $"========== Manager launch {DateTime.Now:yyyy-MM-dd HH:mm:ss} =========={Environment.NewLine}"
             );
             startInfo.Environment["OASISBOT_MANAGER_LOG_PATH"] = entry.LastLogPath;
+            startInfo.Environment["OASISBOT_MANAGER_PIPE"] = GetManagerPipeName(entry);
 
             startInfo.ArgumentList.Add("-p");
             startInfo.ArgumentList.Add(NormalizeProfile(entry.Profile));
@@ -347,10 +349,11 @@ internal sealed class MainForm : Form
                 startInfo.ArgumentList.Add(entry.Character.Trim());
             }
 
-            if (entry.LaunchMode == "Launch Client")
-                startInfo.ArgumentList.Add("--launch-client");
-            else if (entry.LaunchMode == "Clientless")
+            if (string.Equals(entry.LaunchMode, "Clientless", StringComparison.OrdinalIgnoreCase))
                 startInfo.ArgumentList.Add("--launch-clientless");
+            else
+                // Manager Start means start the bot and open the Silkroad client.
+                startInfo.ArgumentList.Add("--launch-client");
 
             startInfo.ArgumentList.Add("--manager-controlled");
 
@@ -406,6 +409,24 @@ internal sealed class MainForm : Form
 
         try
         {
+            entry.Status = "Stopping...";
+            entry.RefreshDisplay();
+            _grid.Refresh();
+            UpdateButtons();
+
+            // Prefer the private per-instance control pipe. This asks OasisBot itself
+            // to save its configuration, close the game client, and exit cleanly.
+            var commandSent = await SendManagerStopCommandAsync(entry);
+            if (commandSent && await WaitForExitAsync(process, TimeSpan.FromSeconds(20)))
+            {
+                entry.ClearProcess();
+                SaveEntries();
+                RefreshProcessStates();
+                return;
+            }
+
+            // Older or unmanaged processes may not have the command pipe. Try the
+            // standard window close before offering a force stop.
             process.Refresh();
             var closeSent = process.CloseMainWindow();
             if (closeSent && await WaitForExitAsync(process, TimeSpan.FromSeconds(12)))
@@ -418,7 +439,7 @@ internal sealed class MainForm : Form
 
             var answer = MessageBox.Show(
                 this,
-                $"'{entry.Name}' did not close normally.\n\nForce stop OasisBot and its child game-client process?",
+                $"'{entry.Name}' did not respond to the graceful STOP command.\n\nForce stop OasisBot and its child game-client process?",
                 "Force stop",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning
@@ -432,6 +453,11 @@ internal sealed class MainForm : Form
                 SaveEntries();
                 RefreshProcessStates();
             }
+            else
+            {
+                entry.Status = "Running";
+                entry.RefreshDisplay();
+            }
         }
         catch (Exception ex)
         {
@@ -440,6 +466,43 @@ internal sealed class MainForm : Form
         }
 
         UpdateButtons();
+    }
+
+    private static string GetManagerPipeName(BotEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.Id))
+            entry.Id = Guid.NewGuid().ToString("N");
+
+        return "OasisBotManager_" + entry.Id;
+    }
+
+    private static async Task<bool> SendManagerStopCommandAsync(BotEntry entry)
+    {
+        try
+        {
+            using var pipe = new NamedPipeClientStream(
+                ".",
+                GetManagerPipeName(entry),
+                PipeDirection.InOut,
+                PipeOptions.Asynchronous
+            );
+
+            await pipe.ConnectAsync(3000).ConfigureAwait(false);
+
+            using var reader = new StreamReader(pipe, System.Text.Encoding.UTF8, false, 1024, true);
+            using var writer = new StreamWriter(pipe, System.Text.Encoding.UTF8, 1024, true)
+            {
+                AutoFlush = true
+            };
+
+            await writer.WriteLineAsync("STOP").ConfigureAwait(false);
+            var response = await reader.ReadLineAsync().ConfigureAwait(false);
+            return string.Equals(response, "STOPPING", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static async Task<bool> WaitForExitAsync(Process process, TimeSpan timeout)
