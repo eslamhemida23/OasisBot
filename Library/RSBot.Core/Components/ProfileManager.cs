@@ -18,6 +18,8 @@ public class ProfileManager
     /// </summary>
     private static readonly ObservableCollection<string> _profiles;
 
+    private static string _selectedProfile;
+
     /// <summary>
     ///     Initialize static ctor
     /// </summary>
@@ -28,6 +30,11 @@ public class ProfileManager
 
         if (!_profiles.Contains("Default"))
             _profiles.Insert(0, "Default");
+
+        // Each OasisBot process must keep its own selected profile in memory.
+        // Profiles.rs is shared by installations and must not switch an already
+        // running process to another instance's profile.
+        _selectedProfile = _config.Get("RSBot.SelectedProfile", "Default");
 
         _profiles.CollectionChanged += Profiles_CollectionChanged;
     }
@@ -50,7 +57,7 @@ public class ProfileManager
     /// <summary>
     ///     The selected profile
     /// </summary>
-    public static string SelectedProfile => _config.Get("RSBot.SelectedProfile", "Default");
+    public static string SelectedProfile => _selectedProfile;
 
     /// <summary>
     ///     Show the profile dialog <c>true</c>; otherwise <c>false</c>
@@ -93,6 +100,7 @@ public class ProfileManager
 
         _config.Set("RSBot.SelectedProfile", profile);
         _config.Save();
+        _selectedProfile = profile;
 
         return true;
     }
@@ -137,6 +145,95 @@ public class ProfileManager
         SetSelectedProfile(profile);
 
         return true;
+    }
+
+    /// <summary>
+    ///     Ensures a profile exists and, for a new or empty manager profile,
+    ///     seeds it from a configured profile so Silkroad client settings are present.
+    /// </summary>
+    public static bool EnsureProfile(string profile, string preferredBaseProfile = "Default")
+    {
+        if (string.IsNullOrWhiteSpace(profile))
+            return false;
+
+        string[] reservedNames = { "Profiles", "Default", "Settings" };
+        if (reservedNames.Any(n => n.Equals(profile, StringComparison.InvariantCultureIgnoreCase)))
+            return SetSelectedProfile(profile);
+
+        if (!ProfileExists(profile))
+            _profiles.Add(profile);
+
+        var targetDirectory = GetProfileDirectory(profile);
+        if (!Directory.Exists(targetDirectory))
+            Directory.CreateDirectory(targetDirectory);
+
+        if (!HasSilkroadSettings(profile))
+        {
+            var candidates = new[] { preferredBaseProfile, _selectedProfile }
+                .Concat(_profiles)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.InvariantCultureIgnoreCase);
+
+            var sourceProfile = candidates.FirstOrDefault(p =>
+                !p.Equals(profile, StringComparison.InvariantCultureIgnoreCase)
+                && HasSilkroadSettings(p)
+            );
+
+            if (sourceProfile != null)
+                CopyProfileData(sourceProfile, profile);
+        }
+
+        return SetSelectedProfile(profile);
+    }
+
+    private static bool HasSilkroadSettings(string profile)
+    {
+        var path = GetProfileFile(profile);
+        if (!File.Exists(path))
+            return false;
+
+        try
+        {
+            return File.ReadLines(path).Any(line =>
+                line.StartsWith("RSBot.SilkroadDirectory{", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(line.Substring("RSBot.SilkroadDirectory{".Length).TrimEnd('}'))
+            );
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void CopyProfileData(string sourceProfile, string targetProfile)
+    {
+        try
+        {
+            var sourceProfileFile = GetProfileFile(sourceProfile);
+            var targetProfileFile = GetProfileFile(targetProfile);
+            if (File.Exists(sourceProfileFile))
+                File.Copy(sourceProfileFile, targetProfileFile, true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not copy base profile settings from {sourceProfile} to {targetProfile}: {ex.Message}");
+        }
+
+        try
+        {
+            var sourceAutoLogin = Path.Combine(GetProfileDirectory(sourceProfile), "autologin.data");
+            var targetDirectory = GetProfileDirectory(targetProfile);
+            if (!Directory.Exists(targetDirectory))
+                Directory.CreateDirectory(targetDirectory);
+
+            var targetAutoLogin = Path.Combine(targetDirectory, "autologin.data");
+            if (File.Exists(sourceAutoLogin))
+                File.Copy(sourceAutoLogin, targetAutoLogin, true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not copy auto-login data from {sourceProfile} to {targetProfile}: {ex.Message}");
+        }
     }
 
     /// <summary>
