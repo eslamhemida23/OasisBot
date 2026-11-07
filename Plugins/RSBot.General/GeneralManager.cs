@@ -92,11 +92,22 @@ namespace RSBot.General
             AutoLogin.Pending = false;
             EventManager.FireEvent("OnAutoLoginAborted");
 
-            var wasClientless = Game.Clientless;
+            var disconnectedProxy = Kernel.Proxy;
+            if (disconnectedProxy == null)
+                return;
 
-            if (!Kernel.Proxy.IsConnectedToAgentserver && !Kernel.Proxy.IsSwitchingToAgentserver)
+            var wasClientless = Game.Clientless;
+            var autoLoginEnabled = GlobalConfig.Get<bool>("RSBot.General.EnableAutomatedLogin");
+
+            Log.Warn(
+                $"Gateway connection dropped. AgentConnected={disconnectedProxy.IsConnectedToAgentserver}, " +
+                $"SwitchingToAgent={disconnectedProxy.IsSwitchingToAgentserver}, " +
+                $"Clientless={wasClientless}, AutomatedLogin={autoLoginEnabled}."
+            );
+
+            if (!disconnectedProxy.IsConnectedToAgentserver && !disconnectedProxy.IsSwitchingToAgentserver)
             {
-                if (GlobalConfig.Get<bool>("RSBot.General.EnableAutomatedLogin"))
+                if (autoLoginEnabled)
                 {
                     var reloginSeq = Interlocked.Increment(ref _reloginSeq);
 
@@ -106,32 +117,41 @@ namespace RSBot.General
                     // due to thread scheduling). Give it a short grace period before we decide it's a real DC.
                     await Task.Delay(2000);
 
-                    if (reloginSeq != Volatile.Read(ref _reloginSeq))
+                    if (
+                        reloginSeq != Volatile.Read(ref _reloginSeq)
+                        || !ReferenceEquals(Kernel.Proxy, disconnectedProxy)
+                    )
                         return;
 
-                    if (Kernel.Proxy.IsConnectedToAgentserver || Kernel.Proxy.IsSwitchingToAgentserver)
+                    if (disconnectedProxy.IsConnectedToAgentserver || disconnectedProxy.IsSwitchingToAgentserver)
                         return;
 
                     EventManager.FireEvent("OnAutoReloginOngoing");
 
                     Log.StatusLang("Ready");
-                    Kernel.Proxy.Shutdown();
+                    disconnectedProxy.Shutdown();
 
                     int delay = 10000;
                     if (GlobalConfig.Get("RSBot.General.EnableWaitAfterDC", false))
                         delay = GlobalConfig.Get<int>("RSBot.General.WaitAfterDC") * 60 * 1000;
 
-                    Log.Warn($"Attempting relogin in {delay / 1000} seconds...");
+                    Log.Warn(
+                        $"Gateway is still disconnected. Automatic login will restart the " +
+                        $"{(wasClientless ? "clientless connection" : "Silkroad client")} in {delay / 1000} seconds."
+                    );
                     await Task.Delay(delay);
 
-                    // Prevent double-start if the disconnect event fires multiple times.
-                    if (reloginSeq != Volatile.Read(ref _reloginSeq))
+                    // Prevent double-start if another connection or manual action replaced this proxy.
+                    if (
+                        reloginSeq != Volatile.Read(ref _reloginSeq)
+                        || !ReferenceEquals(Kernel.Proxy, disconnectedProxy)
+                    )
                         return;
 
                     var userAuthenticated = await HandleRegionalAuth();
                     if (!userAuthenticated)
                     {
-                        Log.Warn("Regional auth failed!");
+                        Log.Warn("Regional authentication failed; automatic relogin was cancelled.");
                         return;
                     }
 
@@ -139,12 +159,18 @@ namespace RSBot.General
                     {
                         // Clientless relogin: restart proxy flow only.
                         Game.Clientless = true;
+                        Log.Notify("Restarting the clientless gateway connection...");
                         Game.Start();
                     }
                     else
                     {
-                        // Client relogin: restart client process.
-                        ClientManager.Kill();
+                        // Client relogin: the old client belongs to the disconnected proxy session.
+                        if (ClientManager.IsRunning)
+                        {
+                            Log.Warn("Closing the disconnected Silkroad client before automatic relogin.");
+                            ClientManager.Kill();
+                        }
+
                         await StartClientProcess();
                     }
 
@@ -154,7 +180,7 @@ namespace RSBot.General
                 EventManager.FireEvent("OnClientDisconnected");
 
                 Log.StatusLang("Ready");
-                Kernel.Proxy.Shutdown();
+                disconnectedProxy.Shutdown();
 
                 Game.Clientless = false;
             }
@@ -208,17 +234,37 @@ namespace RSBot.General
         private async Task StartClientProcess()
         {
             EventManager.FireEvent("OnClientProcessStarted");
-            Game.Start();
+            Log.Notify("Preparing the game proxy before starting the Silkroad client...");
 
-            await Task.Run(async () =>
+            try
             {
-                var startedResult = await ClientManager.Start();
+                Game.Start();
+
+                if (Kernel.Proxy == null || Kernel.Proxy.Port == 0)
+                    throw new System.InvalidOperationException("The game proxy did not initialize a local listening port.");
+
+                Log.Notify($"Game proxy is ready on local port {Kernel.Proxy.Port}. Starting the Silkroad client process...");
+
+                var startedResult = await Task.Run(async () =>
+                    await ClientManager.Start().ConfigureAwait(false)
+                ).ConfigureAwait(false);
+
                 if (!startedResult)
                 {
+                    Log.Error("ClientManager.Start returned false. The Silkroad client process was not started.");
                     OnExitClient();
                     Log.WarnLang("ClientStartingError");
+                    return;
                 }
-            });
+
+                Log.Notify("Silkroad client process launch completed. Waiting for the client to connect to the local proxy.");
+            }
+            catch (System.Exception error)
+            {
+                Log.Error("Automatic Silkroad client restart failed: " + error);
+                OnExitClient();
+                Log.WarnLang("ClientStartingError");
+            }
         }
 
         public static void ChangeSilkroadPath(string path)
