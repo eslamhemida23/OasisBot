@@ -27,6 +27,7 @@ internal sealed class MainForm : Form
     private readonly Button _removeButton = new() { Text = "Remove", Width = 82, Height = 32 };
     private readonly Button _startButton = new() { Text = "Start", Width = 82, Height = 32 };
     private readonly Button _stopButton = new() { Text = "Stop", Width = 82, Height = 32 };
+    private readonly Button _openLogButton = new() { Text = "Open log", Width = 90, Height = 32 };
 
     public MainForm()
     {
@@ -101,11 +102,13 @@ internal sealed class MainForm : Form
         actions.Controls.Add(_stopButton);
         actions.Controls.Add(MakeButton("Start all", 92, async (_, _) => await StartAllAsync()));
         actions.Controls.Add(MakeButton("Stop all", 92, async (_, _) => await StopAllAsync()));
+        actions.Controls.Add(_openLogButton);
 
         _editButton.Click += (_, _) => EditSelected();
         _removeButton.Click += (_, _) => RemoveSelected();
         _startButton.Click += async (_, _) => await StartSelectedAsync();
         _stopButton.Click += async (_, _) => await StopSelectedAsync();
+        _openLogButton.Click += (_, _) => OpenSelectedLog();
 
         _grid.Dock = DockStyle.Fill;
         _grid.AutoGenerateColumns = false;
@@ -125,6 +128,7 @@ internal sealed class MainForm : Form
         _grid.Columns.Add(TextColumn("Launch mode", nameof(BotEntry.LaunchMode), 1.0F));
         _grid.Columns.Add(TextColumn("Status", nameof(BotEntry.Status), 0.9F));
         _grid.Columns.Add(TextColumn("PID", nameof(BotEntry.ProcessIdDisplay), 0.55F));
+        _grid.Columns.Add(TextColumn("Exit code", nameof(BotEntry.ExitCodeDisplay), 0.65F));
         _grid.Columns.Add(TextColumn("Uptime", nameof(BotEntry.UptimeDisplay), 0.8F));
 
         root.Controls.Add(heading, 0, 0);
@@ -166,6 +170,30 @@ internal sealed class MainForm : Form
         _removeButton.Enabled = selected != null && !selectedIsRunning;
         _startButton.Enabled = selected != null && !selectedIsRunning;
         _stopButton.Enabled = selectedIsRunning;
+        _openLogButton.Enabled = selected != null && !string.IsNullOrWhiteSpace(selected.LastLogPath) && File.Exists(selected.LastLogPath);
+    }
+
+    private void OpenSelectedLog()
+    {
+        var selected = SelectedEntry();
+        if (selected == null || string.IsNullOrWhiteSpace(selected.LastLogPath) || !File.Exists(selected.LastLogPath))
+        {
+            MessageBox.Show(this, "No diagnostic log exists for this instance yet.", "Log not found", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = selected.LastLogPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Could not open the log file.\n\n{ex.Message}", "Open log failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private void AddEntry()
@@ -296,6 +324,20 @@ internal sealed class MainForm : Form
                 UseShellExecute = false
             };
 
+            var logDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "OasisBotManager",
+                "Logs"
+            );
+            Directory.CreateDirectory(logDirectory);
+            entry.LastLogPath = Path.Combine(logDirectory, entry.Id + ".log");
+            entry.LastExitCode = null;
+            File.AppendAllText(
+                entry.LastLogPath,
+                Environment.NewLine + $"========== Manager launch {DateTime.Now:yyyy-MM-dd HH:mm:ss} =========={Environment.NewLine}"
+            );
+            startInfo.Environment["OASISBOT_MANAGER_LOG_PATH"] = entry.LastLogPath;
+
             startInfo.ArgumentList.Add("-p");
             startInfo.ArgumentList.Add(NormalizeProfile(entry.Profile));
 
@@ -320,7 +362,20 @@ internal sealed class MainForm : Form
             entry.AttachedProcess = process;
             entry.LastProcessId = process.Id;
             entry.LastProcessStartUtc = process.StartTime.ToUniversalTime();
+            entry.LastExitCode = null;
             entry.Status = "Running";
+            process.Exited += (_, _) =>
+            {
+                try
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                        BeginInvoke((Action)RefreshProcessStates);
+                }
+                catch
+                {
+                    // The timer performs the same check if the form is closing.
+                }
+            };
             entry.RefreshDisplay();
             SaveEntries();
             UpdateSummary();
@@ -482,7 +537,10 @@ internal sealed class MainForm : Form
         {
             if (entry.AttachedProcess == null)
             {
-                if (entry.LastProcessId > 0)
+                if (
+                    entry.LastProcessId > 0
+                    && !entry.Status.StartsWith("Exited", StringComparison.OrdinalIgnoreCase)
+                )
                     TryAttachSavedProcess(entry);
                 continue;
             }
@@ -491,7 +549,7 @@ internal sealed class MainForm : Form
             {
                 if (entry.AttachedProcess.HasExited)
                 {
-                    entry.ClearProcess();
+                    entry.MarkExited();
                     SaveEntries();
                 }
                 else
@@ -502,7 +560,7 @@ internal sealed class MainForm : Form
             }
             catch
             {
-                entry.ClearProcess();
+                entry.MarkExited();
                 SaveEntries();
             }
         }
