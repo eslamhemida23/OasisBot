@@ -1,9 +1,11 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using CommandLine;
 using CommandLine.Text;
@@ -22,6 +24,59 @@ internal static class Program
     private static extern bool FreeConsole();
 
     public static bool ManagerControlled { get; private set; }
+
+    private static string _managerDiagnosticsPath;
+
+    public static void WriteManagerDiagnostic(string message)
+    {
+        if (!ManagerControlled || string.IsNullOrWhiteSpace(_managerDiagnosticsPath))
+            return;
+
+        try
+        {
+            var directory = Path.GetDirectoryName(_managerDiagnosticsPath);
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+
+            File.AppendAllText(
+                _managerDiagnosticsPath,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}"
+            );
+        }
+        catch
+        {
+            // Diagnostics must never prevent the bot from starting or shutting down.
+        }
+    }
+
+    private static void InitializeManagerDiagnostics()
+    {
+        if (!ManagerControlled)
+            return;
+
+        _managerDiagnosticsPath = Environment.GetEnvironmentVariable("OASISBOT_MANAGER_LOG_PATH");
+        if (string.IsNullOrWhiteSpace(_managerDiagnosticsPath))
+            return;
+
+        WriteManagerDiagnostic($"Process started. PID={Environment.ProcessId}");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            WriteManagerDiagnostic("Unhandled exception: " + e.ExceptionObject);
+
+        Application.ThreadException += (_, e) =>
+            WriteManagerDiagnostic("UI thread exception: " + e.Exception);
+
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            WriteManagerDiagnostic("Unobserved task exception: " + e.Exception);
+            e.SetObserved();
+        };
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+            WriteManagerDiagnostic("ProcessExit event fired.");
+
+        Application.ApplicationExit += (_, _) =>
+            WriteManagerDiagnostic("ApplicationExit event fired.");
+    }
 
     public static string AssemblyTitle = Assembly
         .GetExecutingAssembly()
@@ -94,6 +149,8 @@ internal static class Program
                 Environment.Exit(isHelp ? 0 : 1);
             });
 
+        InitializeManagerDiagnostics();
+
         //CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 
         // We need "." instead of "," while saving float numbers
@@ -116,9 +173,12 @@ internal static class Program
 
             Main mainForm = new Main();
             SplashScreen splashScreen = new SplashScreen(mainForm);
+            WriteManagerDiagnostic("Opening initialization splash screen.");
             splashScreen.ShowDialog();
 
+            WriteManagerDiagnostic("Initialization splash screen closed; entering main window.");
             Application.Run(mainForm);
+            WriteManagerDiagnostic("Main window message loop returned.");
         }
     }
 
@@ -174,7 +234,14 @@ internal static class Program
         if (!string.IsNullOrEmpty(options.Profile))
         {
             var profile = options.Profile;
-            if (ProfileManager.ProfileExists(profile))
+            if (ManagerControlled)
+            {
+                if (!ProfileManager.EnsureProfile(profile, "Default"))
+                    throw new InvalidOperationException($"Could not prepare manager profile: {profile}");
+
+                WriteManagerDiagnostic($"Manager profile selected: {profile}");
+            }
+            else if (ProfileManager.ProfileExists(profile))
                 ProfileManager.SetSelectedProfile(profile);
             else
                 ProfileManager.Add(profile);
