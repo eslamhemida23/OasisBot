@@ -619,6 +619,7 @@ public partial class Main : UIWindow
     {
         if (Program.ManagerControlled)
         {
+            Program.WriteManagerDiagnostic("Manager-controlled main window close requested; saving settings and closing game client.");
             GlobalConfig.Save();
             PlayerConfig.Save();
             ClientManager.Kill();
