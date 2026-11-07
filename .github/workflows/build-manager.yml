@@ -37,23 +37,44 @@ jobs:
         run: |
           $managerOutput = "Manager/bin/x86/Release/net8.0-windows"
           $managerExe = Join-Path $managerOutput "OasisBot.Manager.exe"
-          $botExe = "Build/OasisBot.exe"
+          $requiredBotFiles = @(
+            "Build/OasisBot.exe",
+            "Build/OasisBot.dll",
+            "Build/RSBot.Core.dll",
+            "Build/SDUI.dll"
+          )
 
           if (!(Test-Path $managerExe)) {
             throw "Missing Manager executable: $managerExe"
           }
 
-          if (!(Test-Path $botExe)) {
-            throw "Missing updated bot executable: $botExe"
+          foreach ($file in $requiredBotFiles) {
+            if (!(Test-Path $file)) {
+              throw "Missing updated bot runtime file: $file"
+            }
           }
 
           $stage = "OasisBot-Manager-Bundle"
           New-Item -ItemType Directory -Force -Path "$stage/Manager", "$stage/BotUpdate" | Out-Null
           Copy-Item "$managerOutput/*" "$stage/Manager/" -Recurse -Force
-          Copy-Item $botExe "$stage/BotUpdate/OasisBot.exe" -Force
+
+          # The bot logic lives in OasisBot.dll and RSBot.Core.dll, not only in the apphost EXE.
+          # Copy every top-level runtime file and folder, but preserve the user's Data and User folders.
+          Get-ChildItem "Build" -Force |
+            Where-Object { $_.Name -notin @("Data", "User") } |
+            ForEach-Object {
+              Copy-Item $_.FullName "$stage/BotUpdate/" -Recurse -Force
+            }
+
+          foreach ($file in $requiredBotFiles) {
+            $name = Split-Path $file -Leaf
+            if (!(Test-Path "$stage/BotUpdate/$name")) {
+              throw "Bot update bundle is missing: $name"
+            }
+          }
 
           Compress-Archive -Path "$stage/*" -DestinationPath "OasisBot-Manager-Bundle.zip" -Force
-          Get-Item $managerExe, $botExe, "OasisBot-Manager-Bundle.zip" |
+          Get-Item $managerExe, $requiredBotFiles, "OasisBot-Manager-Bundle.zip" |
             Select-Object FullName, Length | Format-Table -AutoSize
 
       - name: Upload Manager bundle
