@@ -121,8 +121,65 @@ public partial class SplashScreen : UIWindow
     ///     The <see cref="System.ComponentModel.RunWorkerCompletedEventArgs" /> instance containing the event
     ///     data.
     /// </param>
-    private void ReferenceDataLoaderCompleted(object sender, RunWorkerCompletedEventArgs e)
+    private async void ReferenceDataLoaderCompleted(object sender, RunWorkerCompletedEventArgs e)
     {
+        if (e.Error != null)
+        {
+            Program.WriteManagerDiagnostic("Reference data loading failed: " + e.Error);
+            MessageBox.Show(
+                this,
+                "OasisBot could not finish loading game data. Check the diagnostic log for details.",
+                "Game data loading failed",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
+            Close();
+            return;
+        }
+
+        if (e.Cancelled)
+        {
+            Program.WriteManagerDiagnostic("Reference data loading was cancelled.");
+            Close();
+            return;
+        }
+
+        if (string.Equals(Kernel.LaunchMode, "client", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                Program.WriteManagerDiagnostic("Launching Silkroad game client after reference data load.");
+                var started = await ClientManager.Start();
+                Program.WriteManagerDiagnostic(
+                    started
+                        ? "ClientManager.Start completed successfully."
+                        : "ClientManager.Start returned false; the game client was not started."
+                );
+
+                if (!started)
+                {
+                    MessageBox.Show(
+                        this,
+                        "OasisBot could not start the Silkroad game client. Check the Silkroad directory, executable and client type in the bot settings.",
+                        "Game client could not start",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning
+                    );
+                }
+            }
+            catch (Exception error)
+            {
+                Program.WriteManagerDiagnostic("Game client launch exception: " + error);
+                MessageBox.Show(
+                    this,
+                    "An error occurred while starting the Silkroad game client. Check the Manager diagnostic log.",
+                    "Game client launch failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+            }
+        }
+
         var detectDarkLight = GeneralConfig.Get("RSBot.Theme.Auto", true);
         if (detectDarkLight)
         {
