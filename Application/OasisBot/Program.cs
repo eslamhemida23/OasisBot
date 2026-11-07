@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -26,6 +27,10 @@ internal static class Program
     public static bool ManagerControlled { get; private set; }
 
     private static string _managerDiagnosticsPath;
+    private static string _managerPipeName;
+    private static Main _managerMainForm;
+    private static SplashScreen _managerSplashScreen;
+    private static volatile bool _managerStopRequested;
 
     public static void WriteManagerDiagnostic(string message)
     {
@@ -55,27 +60,124 @@ internal static class Program
             return;
 
         _managerDiagnosticsPath = Environment.GetEnvironmentVariable("OASISBOT_MANAGER_LOG_PATH");
-        if (string.IsNullOrWhiteSpace(_managerDiagnosticsPath))
-            return;
+        _managerPipeName = Environment.GetEnvironmentVariable("OASISBOT_MANAGER_PIPE");
 
-        WriteManagerDiagnostic($"Process started. PID={Environment.ProcessId}");
-        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
-            WriteManagerDiagnostic("Unhandled exception: " + e.ExceptionObject);
-
-        Application.ThreadException += (_, e) =>
-            WriteManagerDiagnostic("UI thread exception: " + e.Exception);
-
-        TaskScheduler.UnobservedTaskException += (_, e) =>
+        if (!string.IsNullOrWhiteSpace(_managerDiagnosticsPath))
         {
-            WriteManagerDiagnostic("Unobserved task exception: " + e.Exception);
-            e.SetObserved();
-        };
+            WriteManagerDiagnostic($"Process started. PID={Environment.ProcessId}");
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                WriteManagerDiagnostic("Unhandled exception: " + e.ExceptionObject);
 
-        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-            WriteManagerDiagnostic("ProcessExit event fired.");
+            Application.ThreadException += (_, e) =>
+                WriteManagerDiagnostic("UI thread exception: " + e.Exception);
 
-        Application.ApplicationExit += (_, _) =>
-            WriteManagerDiagnostic("ApplicationExit event fired.");
+            TaskScheduler.UnobservedTaskException += (_, e) =>
+            {
+                WriteManagerDiagnostic("Unobserved task exception: " + e.Exception);
+                e.SetObserved();
+            };
+
+            AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+                WriteManagerDiagnostic("ProcessExit event fired.");
+
+            Application.ApplicationExit += (_, _) =>
+                WriteManagerDiagnostic("ApplicationExit event fired.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(_managerPipeName))
+            StartManagerCommandServer();
+    }
+
+    private static void StartManagerCommandServer()
+    {
+        _ = Task.Run(async () =>
+        {
+            while (true)
+            {
+                try
+                {
+                    using var server = new NamedPipeServerStream(
+                        _managerPipeName,
+                        PipeDirection.InOut,
+                        1,
+                        PipeTransmissionMode.Byte,
+                        PipeOptions.Asynchronous
+                    );
+
+                    await server.WaitForConnectionAsync().ConfigureAwait(false);
+
+                    using var reader = new StreamReader(server, Encoding.UTF8, false, 1024, true);
+                    using var writer = new StreamWriter(server, Encoding.UTF8, 1024, true)
+                    {
+                        AutoFlush = true
+                    };
+
+                    var command = await reader.ReadLineAsync().ConfigureAwait(false);
+                    if (string.Equals(command, "STOP", StringComparison.OrdinalIgnoreCase))
+                    {
+                        WriteManagerDiagnostic("Manager STOP command received.");
+                        await writer.WriteLineAsync("STOPPING").ConfigureAwait(false);
+                        RequestManagerStop();
+                    }
+                    else
+                    {
+                        await writer.WriteLineAsync("UNKNOWN_COMMAND").ConfigureAwait(false);
+                    }
+                }
+                catch (Exception error)
+                {
+                    WriteManagerDiagnostic("Manager command pipe error: " + error.Message);
+                    await Task.Delay(500).ConfigureAwait(false);
+                }
+            }
+        });
+    }
+
+    private static void RequestManagerStop()
+    {
+        _managerStopRequested = true;
+
+        try
+        {
+            if (_managerMainForm != null && !_managerMainForm.IsDisposed && _managerMainForm.IsHandleCreated)
+            {
+                _managerMainForm.BeginInvoke(new Action(() =>
+                {
+                    if (!_managerMainForm.IsDisposed)
+                        _managerMainForm.Close();
+                }));
+                return;
+            }
+
+            if (
+                _managerSplashScreen != null
+                && !_managerSplashScreen.IsDisposed
+                && _managerSplashScreen.IsHandleCreated
+            )
+            {
+                _managerSplashScreen.BeginInvoke(new Action(() =>
+                {
+                    if (!_managerSplashScreen.IsDisposed)
+                        _managerSplashScreen.Close();
+                }));
+            }
+        }
+        catch (Exception error)
+        {
+            WriteManagerDiagnostic("Could not dispatch Manager STOP to the UI: " + error.Message);
+        }
+    }
+
+    private static void ShutdownBeforeMainWindow()
+    {
+        WriteManagerDiagnostic("Manager STOP requested before the main window message loop.");
+
+        try { GlobalConfig.Save(); } catch (Exception error) { WriteManagerDiagnostic("Global settings save failed: " + error.Message); }
+        try { PlayerConfig.Save(); } catch (Exception error) { WriteManagerDiagnostic("Player settings save failed: " + error.Message); }
+        try { ClientManager.Kill(); } catch (Exception error) { WriteManagerDiagnostic("Game client shutdown failed: " + error.Message); }
+        try { Kernel.Proxy?.Shutdown(); } catch (Exception error) { WriteManagerDiagnostic("Proxy shutdown failed: " + error.Message); }
+
+        Environment.Exit(0);
     }
 
     public static string AssemblyTitle = Assembly
@@ -172,9 +274,19 @@ internal static class Program
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
 
             Main mainForm = new Main();
+            _managerMainForm = mainForm;
+
             SplashScreen splashScreen = new SplashScreen(mainForm);
+            _managerSplashScreen = splashScreen;
             WriteManagerDiagnostic("Opening initialization splash screen.");
             splashScreen.ShowDialog();
+            _managerSplashScreen = null;
+
+            if (_managerStopRequested)
+            {
+                ShutdownBeforeMainWindow();
+                return;
+            }
 
             WriteManagerDiagnostic("Initialization splash screen closed; entering main window.");
             Application.Run(mainForm);
