@@ -219,6 +219,8 @@ internal static class Program
     private static void RunOptions(CommandLineOptions options)
     {
         ManagerControlled = options.ManagerControlled;
+        if (ManagerControlled)
+            _managerDiagnosticsPath = Environment.GetEnvironmentVariable("OASISBOT_MANAGER_LOG_PATH");
 
         if (options.LaunchClient)
         {
