@@ -1,8 +1,10 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,18 +28,55 @@ public class ClientManager
     /// <summary>
     ///     The client process
     /// </summary>
+    private static readonly object ProcessLock = new();
+    private static readonly SemaphoreSlim StartLock = new(1, 1);
     private static Process _process;
 
     /// <summary>
     ///     Get, has client exited <c>true</c> otherwise; <c>false</c>
     /// </summary>
-    public static bool IsRunning => _process != null && !_process.HasExited;
+    public static bool IsRunning
+    {
+        get
+        {
+            lock (ProcessLock)
+            {
+                try
+                {
+                    return _process != null && !_process.HasExited;
+                }
+                catch (InvalidOperationException)
+                {
+                    return false;
+                }
+            }
+        }
+    }
 
     /// <summary>
     ///     Start the game client
     /// </summary>
     /// <returns>Has successfully started <c>true</c>; otherwise <c>false</c></returns>
     public static async Task<bool> Start()
+    {
+        await StartLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (IsRunning)
+            {
+                Log.Warn("A Silkroad client process is already running; skipping duplicate start.");
+                return false;
+            }
+
+            return await StartCore().ConfigureAwait(false);
+        }
+        finally
+        {
+            StartLock.Release();
+        }
+    }
+
+    private static async Task<bool> StartCore()
     {
         var sessionProxy = Kernel.Proxy;
         if (sessionProxy == null || sessionProxy.Port == 0)
@@ -134,18 +173,31 @@ public class ClientManager
                 out var pi
             )
         )
+        {
+            var errorCode = Marshal.GetLastWin32Error();
+            Log.Error(
+                $"CreateProcess failed for Silkroad client '{path}'. " +
+                $"Win32Error={errorCode}: {new Win32Exception(errorCode).Message}"
+            );
             return false;
+        }
 
-        // Keep an owned Process handle as soon as Windows creates the client.
-        // The Manager may request STOP while client injection/startup is still running.
-        _process = Process.GetProcessById((int)pi.dwProcessId);
+        // Track the exact process created by this invocation. A failed injection must not
+        // leave a suspended client behind for a later reconnect attempt to accidentally kill.
+        Process clientProcess = null;
+        bool startCompleted = false;
+        try
+        {
+            clientProcess = Process.GetProcessById((int)pi.dwProcessId);
+            lock (ProcessLock)
+                _process = clientProcess;
 
-        using var vtcStartup = vtcLayout != null ? new VtcClientStartup(pi) : null;
+            using var vtcStartup = vtcLayout != null ? new VtcClientStartup(pi) : null;
         PrepareTempConfigFile(pi.dwProcessId, divisionIndex, sessionProxy.Port);
 
         if (specialClient)
         {
-            Process sroProcess = _process;
+            Process sroProcess = clientProcess;
 
             if (Game.ClientType == GameClientType.VTC_Game)
             {
@@ -198,63 +250,181 @@ public class ClientManager
                 }
             }
             else
-                ResumeThread(pi.hThread);
+            {
+                var resumeResult = ResumeThread(pi.hThread);
+                if (resumeResult == uint.MaxValue)
+                {
+                    LogWin32Failure("ResumeThread(client primary thread)", pi.dwProcessId);
+                    return false;
+                }
+            }
 
-            _process = sroProcess;
         }
         else
         {
             var handle = OpenProcess(PROCESS_ALL_ACCESS, false, pi.dwProcessId);
             if (handle == IntPtr.Zero)
-                return false;
-
-            IntPtr kernelHandle = GetModuleHandleW("kernel32.dll");
-            if (kernelHandle == IntPtr.Zero)
-                return false;
-
-            IntPtr loadLibAddr = GetProcAddress(kernelHandle, "LoadLibraryW");
-            if (loadLibAddr == IntPtr.Zero)
-                return false;
-
-            IntPtr remotePath = VirtualAllocEx(handle, IntPtr.Zero, pathLen, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-
-            if (remotePath == IntPtr.Zero)
-                return false;
-
-            if (!WriteProcessMemory(handle, remotePath, buffer, pathLen, out _))
-                return false;
-
-            IntPtr remoteThread = CreateRemoteThread(handle, IntPtr.Zero, 0, loadLibAddr, remotePath, 0, IntPtr.Zero);
-
-            if (remoteThread == IntPtr.Zero)
-                return false;
-
-            WaitForSingleObject(remoteThread, uint.MaxValue);
-
-            if (Game.ClientType == GameClientType.Chinese)
             {
-                var sroProcess = System.Diagnostics.Process.GetProcessById((int)pi.dwProcessId);
-                WaitForChineseClientPatchTargets(sroProcess, pi.hThread);
-                ApplyChineseClientPatch(sroProcess, pi);
+                LogWin32Failure("OpenProcess", pi.dwProcessId);
+                return false;
             }
 
-            VirtualFreeEx(handle, remotePath, 0, MEM_RELEASE);
+            IntPtr remotePath = IntPtr.Zero;
+            IntPtr remoteThread = IntPtr.Zero;
+            try
+            {
+                IntPtr kernelHandle = GetModuleHandleW("kernel32.dll");
+                if (kernelHandle == IntPtr.Zero)
+                {
+                    LogWin32Failure("GetModuleHandleW(kernel32.dll)", pi.dwProcessId);
+                    return false;
+                }
 
-            CloseHandle(remoteThread);
-            CloseHandle(handle);
+                IntPtr loadLibAddr = GetProcAddress(kernelHandle, "LoadLibraryW");
+                if (loadLibAddr == IntPtr.Zero)
+                {
+                    LogWin32Failure("GetProcAddress(LoadLibraryW)", pi.dwProcessId);
+                    return false;
+                }
 
-            ResumeThread(pi.hThread);
-            ResumeThread(pi.hProcess);
+                remotePath = VirtualAllocEx(handle, IntPtr.Zero, pathLen, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+                if (remotePath == IntPtr.Zero)
+                {
+                    LogWin32Failure("VirtualAllocEx", pi.dwProcessId);
+                    return false;
+                }
 
-            if (_process == null || _process.HasExited)
+                if (!WriteProcessMemory(handle, remotePath, buffer, pathLen, out var bytesWritten))
+                {
+                    LogWin32Failure("WriteProcessMemory", pi.dwProcessId);
+                    return false;
+                }
+
+                if (bytesWritten.ToInt64() != pathLen)
+                {
+                    Log.Error(
+                        $"WriteProcessMemory wrote {bytesWritten.ToInt64()} of {pathLen} bytes " +
+                        $"while preparing Client.Library.dll injection for PID={pi.dwProcessId}."
+                    );
+                    return false;
+                }
+
+                remoteThread = CreateRemoteThread(handle, IntPtr.Zero, 0, loadLibAddr, remotePath, 0, IntPtr.Zero);
+                if (remoteThread == IntPtr.Zero)
+                {
+                    LogWin32Failure("CreateRemoteThread", pi.dwProcessId);
+                    return false;
+                }
+
+                var waitResult = WaitForSingleObject(remoteThread, uint.MaxValue);
+                if (waitResult == uint.MaxValue)
+                {
+                    LogWin32Failure("WaitForSingleObject(remoteThread)", pi.dwProcessId);
+                    return false;
+                }
+
+                if (Game.ClientType == GameClientType.Chinese)
+                {
+                    WaitForChineseClientPatchTargets(clientProcess, pi.hThread);
+                    ApplyChineseClientPatch(clientProcess, pi);
+                }
+            }
+            finally
+            {
+                if (remotePath != IntPtr.Zero)
+                    VirtualFreeEx(handle, remotePath, 0, MEM_RELEASE);
+                if (remoteThread != IntPtr.Zero)
+                    CloseHandle(remoteThread);
+                CloseHandle(handle);
+            }
+
+            var resumeResult = ResumeThread(pi.hThread);
+            if (resumeResult == uint.MaxValue)
+            {
+                LogWin32Failure("ResumeThread(client primary thread)", pi.dwProcessId);
                 return false;
+            }
+
+            if (clientProcess.HasExited)
+            {
+                Log.Error($"Silkroad client PID={pi.dwProcessId} exited before startup completed.");
+                return false;
+            }
         }
 
-        _process.EnableRaisingEvents = true;
-        _process.Exited += ClientProcess_Exited;
+        lock (ProcessLock)
+        {
+            if (!ReferenceEquals(_process, clientProcess) || clientProcess.HasExited)
+            {
+                Log.Warn($"Silkroad client PID={pi.dwProcessId} was stopped before startup completed.");
+                return false;
+            }
 
+            clientProcess.EnableRaisingEvents = true;
+            clientProcess.Exited += ClientProcess_Exited;
+        }
+
+        startCompleted = true;
         EventManager.FireEvent("OnStartClient");
         return true;
+        }
+        finally
+        {
+            if (!startCompleted)
+                CleanupFailedStart(clientProcess, pi.dwProcessId);
+        }
+    }
+
+    private static void LogWin32Failure(string operation, uint processId)
+    {
+        var errorCode = Marshal.GetLastWin32Error();
+        Log.Error(
+            $"{operation} failed while starting Silkroad client PID={processId}. " +
+            $"Win32Error={errorCode}: {new Win32Exception(errorCode).Message}"
+        );
+    }
+
+    private static void CleanupFailedStart(Process process, uint processId)
+    {
+        if (process == null)
+        {
+            try
+            {
+                process = Process.GetProcessById((int)processId);
+            }
+            catch
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            if (!process.HasExited)
+            {
+                Log.Warn($"Terminating incomplete Silkroad client process PID={process.Id} after startup failure.");
+                process.Kill();
+                process.WaitForExit(5000);
+            }
+        }
+        catch (Exception error)
+        {
+            Log.Warn($"Could not clean up incomplete Silkroad client PID={processId}: {error.Message}");
+        }
+
+        lock (ProcessLock)
+        {
+            if (ReferenceEquals(_process, process))
+                _process = null;
+        }
+
+        try
+        {
+            process.Dispose();
+        }
+        catch
+        {
+        }
     }
 
     /// <summary>
@@ -633,14 +803,33 @@ public class ClientManager
     /// </summary>
     public static void Kill()
     {
-        if (!IsRunning)
+        Process process;
+        lock (ProcessLock)
+        {
+            process = _process;
+            _process = null;
+        }
+
+        if (process == null)
             return;
 
         try
         {
-            _process.Kill();
+            if (!process.HasExited)
+            {
+                Log.Warn($"Stopping Silkroad client process PID={process.Id}.");
+                process.Kill();
+                process.WaitForExit(5000);
+            }
         }
-        catch { }
+        catch (Exception error)
+        {
+            Log.Warn($"Could not stop Silkroad client process: {error.Message}");
+        }
+        finally
+        {
+            process.Dispose();
+        }
     }
 
     /// <summary>
@@ -672,18 +861,36 @@ public class ClientManager
     /// </summary>
     private static void ClientProcess_Exited(object sender, EventArgs e)
     {
-        var process = sender as Process ?? _process;
+        var process = sender as Process;
+        if (process == null)
+            return;
+
+        bool isCurrentProcess;
+        lock (ProcessLock)
+        {
+            isCurrentProcess = ReferenceEquals(_process, process);
+            if (isCurrentProcess)
+                _process = null;
+        }
 
         try
         {
-            Log.Warn($"Silkroad client process exited. PID={process?.Id}, ExitCode={process?.ExitCode}.");
+            Log.Warn($"Silkroad client process exited. PID={process.Id}, ExitCode={process.ExitCode}.");
         }
         catch (Exception error)
         {
             Log.Warn("Silkroad client process exited; its exit code could not be read: " + error.Message);
         }
 
+        if (!isCurrentProcess)
+        {
+            Log.Debug($"Ignoring exit event from superseded Silkroad client PID={process.Id}.");
+            process.Dispose();
+            return;
+        }
+
         EventManager.FireEvent("OnExitClient");
+        process.Dispose();
     }
 
     /// <summary>
