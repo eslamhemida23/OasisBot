@@ -9,4 +9,8 @@
     <AssemblyName>OasisBot.Manager</AssemblyName>
     <RootNamespace>OasisBot.Manager</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\\Library\\RSBot.Core\\Network\\Protocol\\Blowfish.cs" Link="Shared\\Blowfish.cs" />
+  </ItemGroup>
 </Project>
