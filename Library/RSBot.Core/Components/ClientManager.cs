@@ -672,7 +672,17 @@ public class ClientManager
     /// </summary>
     private static void ClientProcess_Exited(object sender, EventArgs e)
     {
-        Log.Warn("Client process exited!");
+        var process = sender as Process ?? _process;
+
+        try
+        {
+            Log.Warn($"Silkroad client process exited. PID={process?.Id}, ExitCode={process?.ExitCode}.");
+        }
+        catch (Exception error)
+        {
+            Log.Warn("Silkroad client process exited; its exit code could not be read: " + error.Message);
+        }
+
         EventManager.FireEvent("OnExitClient");
     }
 
