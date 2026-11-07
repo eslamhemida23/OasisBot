@@ -215,28 +215,28 @@ public class ProfileManager
         {
             var sourceProfileFile = GetProfileFile(sourceProfile);
             var targetProfileFile = GetProfileFile(targetProfile);
-            if (File.Exists(sourceProfileFile))
-                File.Copy(sourceProfileFile, targetProfileFile, true);
+            if (!File.Exists(sourceProfileFile))
+                return;
+
+            // Copy only shared game/server configuration. Never copy account secrets
+            // or auto-login files into another character profile.
+            var safeLines = File.ReadAllLines(sourceProfileFile)
+                .Where(line =>
+                {
+                    var key = line.Split('{')[0].Trim();
+                    return !key.Contains("password", StringComparison.OrdinalIgnoreCase)
+                        && !key.Contains("passwd", StringComparison.OrdinalIgnoreCase)
+                        && !key.Contains("username", StringComparison.OrdinalIgnoreCase)
+                        && !key.Contains("account", StringComparison.OrdinalIgnoreCase)
+                        && !key.EndsWith(".login", StringComparison.OrdinalIgnoreCase);
+                })
+                .ToArray();
+
+            File.WriteAllLines(targetProfileFile, safeLines);
         }
         catch (Exception ex)
         {
             Log.Warn($"Could not copy base profile settings from {sourceProfile} to {targetProfile}: {ex.Message}");
-        }
-
-        try
-        {
-            var sourceAutoLogin = Path.Combine(GetProfileDirectory(sourceProfile), "autologin.data");
-            var targetDirectory = GetProfileDirectory(targetProfile);
-            if (!Directory.Exists(targetDirectory))
-                Directory.CreateDirectory(targetDirectory);
-
-            var targetAutoLogin = Path.Combine(targetDirectory, "autologin.data");
-            if (File.Exists(sourceAutoLogin))
-                File.Copy(sourceAutoLogin, targetAutoLogin, true);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Could not copy auto-login data from {sourceProfile} to {targetProfile}: {ex.Message}");
         }
     }
 
