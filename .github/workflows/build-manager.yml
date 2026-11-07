@@ -74,7 +74,8 @@ jobs:
           }
 
           Compress-Archive -Path "$stage/*" -DestinationPath "OasisBot-Manager-Bundle.zip" -Force
-          Get-Item $managerExe, $requiredBotFiles, "OasisBot-Manager-Bundle.zip" |
+          $filesToReport = @($managerExe) + $requiredBotFiles + @("OasisBot-Manager-Bundle.zip")
+          Get-Item $filesToReport |
             Select-Object FullName, Length | Format-Table -AutoSize
 
       - name: Upload Manager bundle
