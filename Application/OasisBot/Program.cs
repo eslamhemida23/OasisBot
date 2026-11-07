@@ -32,6 +32,8 @@ internal static class Program
     private static SplashScreen _managerSplashScreen;
     private static volatile bool _managerStopRequested;
 
+    public static bool ManagerStopRequested => _managerStopRequested;
+
     public static void WriteManagerDiagnostic(string message)
     {
         if (!ManagerControlled || string.IsNullOrWhiteSpace(_managerDiagnosticsPath))
