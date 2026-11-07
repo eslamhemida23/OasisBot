@@ -269,7 +269,7 @@ internal sealed class MainForm : Form
         {
             MessageBox.Show(
                 this,
-                $"Could not save login details to profile '{target.Profile}'.\\n\\n{ex.Message}",
+                $"Could not save login details to profile '{target.Profile}'.\n\n{ex.Message}",
                 "Save login details failed",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error
