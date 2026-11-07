@@ -4,7 +4,7 @@ A small external Windows application for managing multiple OasisBot instances.
 
 ## Features
 
-- Save multiple bot entries with an executable path, profile, character, and launch mode.
+- Save multiple bot entries with an executable path, profile, character, launch mode, and optional per-profile game login details.
 - Start and stop a selected entry or all entries.
 - Start opens the Silkroad game client automatically by default.
 - Stop sends a private command to the matching OasisBot process, saves its settings, and closes its game client.
@@ -31,7 +31,7 @@ A small external Windows application for managing multiple OasisBot instances.
 9. Select the launch mode and save.
 10. Select the entry and press Start, or use Start all.
 
-The Manager does not store game passwords. It only stores the bot executable, profile, character name, and launch mode.
+When login details are provided, the Manager writes them to Build\\User\\<Profile>\\autologin.data using OasisBot's existing account-file format. Existing accounts in that profile are preserved; entering an already saved username updates that account instead of creating a duplicate. The selected Manager character is also added to that account's character list. The login password is not stored in instances.json.\n\nThe account file uses the same legacy Blowfish encoding as OasisBot itself; this is format compatibility, not modern password-grade encryption. Protect the Windows user account and the Build\\User folder accordingly.\n\nThe new account appears in OasisBot's General → Accounts list. To use automatic login, select that account and enable Automated Login in the bot's General settings; the Manager does not silently change the profile's auto-login preferences.
 
 When the Manager creates or repairs a profile, OasisBot copies the shared game/server settings from the configured Default profile (or another configured profile if Default is not configured). Account passwords, username/login fields, and auto-login files are not copied.
 
