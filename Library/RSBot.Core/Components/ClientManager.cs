@@ -815,6 +815,9 @@ public class ClientManager
 
         try
         {
+            process.EnableRaisingEvents = false;
+            process.Exited -= ClientProcess_Exited;
+
             if (!process.HasExited)
             {
                 Log.Warn($"Stopping Silkroad client process PID={process.Id}.");
@@ -865,6 +868,15 @@ public class ClientManager
         if (process == null)
             return;
 
+        int processId = 0;
+        try
+        {
+            processId = process.Id;
+        }
+        catch
+        {
+        }
+
         bool isCurrentProcess;
         lock (ProcessLock)
         {
@@ -875,7 +887,7 @@ public class ClientManager
 
         try
         {
-            Log.Warn($"Silkroad client process exited. PID={process.Id}, ExitCode={process.ExitCode}.");
+            Log.Warn($"Silkroad client process exited. PID={processId}, ExitCode={process.ExitCode}.");
         }
         catch (Exception error)
         {
@@ -884,7 +896,7 @@ public class ClientManager
 
         if (!isCurrentProcess)
         {
-            Log.Debug($"Ignoring exit event from superseded Silkroad client PID={process.Id}.");
+            Log.Debug($"Ignoring exit event from superseded Silkroad client PID={processId}.");
             process.Dispose();
             return;
         }
