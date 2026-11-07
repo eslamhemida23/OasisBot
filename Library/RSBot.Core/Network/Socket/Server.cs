@@ -68,22 +68,25 @@ public class Server : NetBase
                     _socket.Connect(ip, port, 3000);
                 }
             }
-            catch (AggregateException s)
+            catch (AggregateException error)
             {
-                Log.Error(s.Message);
+                var cause = error.Flatten().GetBaseException();
+                Log.Error($"Connection to {ip}:{port} through the configured SOCKS proxy failed: {cause.Message}");
                 Disconnect();
                 return;
             }
-            catch (SocketProxyException s)
+            catch (SocketProxyException error)
             {
-                Log.Error(s.Message);
+                Log.Error($"SOCKS proxy connection to {ip}:{port} failed: {error.Message}");
                 Disconnect();
                 return;
             }
-            catch (SocketException s)
+            catch (SocketException error)
             {
-                Log.Error($"Could not establish a connection to {ip}:{port}.");
-                Log.Error(s.Message);
+                Log.Error(
+                    $"Could not establish a TCP connection to {ip}:{port}. " +
+                    $"SocketError={error.SocketErrorCode}, NativeError={error.ErrorCode}: {error.Message}"
+                );
                 Disconnect();
                 return;
             }
@@ -97,9 +100,13 @@ public class Server : NetBase
             OnConnected();
 
             EventManager.FireEvent("OnServerConnected");
-            Log.Debug("Server connection established!");
+            Log.Notify($"TCP connection established to game server endpoint {ip}:{port}; waiting for the Silkroad handshake.");
         }
-        catch { }
+        catch (Exception error)
+        {
+            Log.Error($"Unexpected error while connecting to game server endpoint {ip}:{port}: {error}");
+            Disconnect();
+        }
     }
 
     /// <summary>
@@ -120,15 +127,29 @@ public class Server : NetBase
 
             if (receivedSize == 0 || error != SocketError.Success)
             {
-                if (
-                    !IsClosing
-                    && EnablePacketDispatcher
-                    && _receivedInitialHandshake
-                    && !_receivedPostInitialHandshakePacket
-                )
-                    Log.Notify(
-                        "Gateway closed immediately after initial 0x5000 before handshake completed. Possible IP/session limit"
-                    );
+                if (!IsClosing && EnablePacketDispatcher)
+                {
+                    var endpoint = _socket?.RemoteEndPoint?.ToString() ?? $"{IP}:{Port}";
+                    if (_receivedInitialHandshake && !_receivedPostInitialHandshakePacket)
+                    {
+                        Log.Warn(
+                            $"Remote game server {endpoint} closed the connection after the initial 0x5000 packet " +
+                            "but before the handshake completed. This can indicate an IP/session limit or a server-side rejection."
+                        );
+                    }
+                    else if (!_receivedInitialHandshake)
+                    {
+                        Log.Warn(
+                            $"Remote game server {endpoint} closed the connection before sending the initial 0x5000 handshake packet."
+                        );
+                    }
+                    else
+                    {
+                        Log.Warn(
+                            $"Remote game server {endpoint} closed the connection after the initial handshake."
+                        );
+                    }
+                }
 
                 OnDisconnected();
                 return;
@@ -142,26 +163,44 @@ public class Server : NetBase
             _protocol.Recv(_buffer, 0, receivedSize);
             SignalPacketDispatcher();
         }
-        catch (SocketException se)
+        catch (SocketException error)
         {
-            if (se.SocketErrorCode == SocketError.ConnectionReset) //Client OnDisconnected > Mostly occurs during GW->AS switch
+            if (!IsClosing && EnablePacketDispatcher)
+            {
+                Log.Warn(
+                    $"Socket receive failed for game server endpoint {IP}:{Port}. " +
+                    $"SocketError={error.SocketErrorCode}, NativeError={error.ErrorCode}: {error.Message}"
+                );
                 OnDisconnected();
+            }
         }
-        catch (HandshakeSecurityException)
+        catch (HandshakeSecurityException error)
         {
-            Log.Notify("[Fatal]: Could not handshake the client, restarting client process now...");
+            Log.Error("Could not complete the Silkroad security handshake: " + error.Message);
             Game.Start();
+        }
+        catch (Exception error)
+        {
+            if (!IsClosing && EnablePacketDispatcher)
+            {
+                Log.Error($"Unexpected receive error from game server endpoint {IP}:{Port}: {error}");
+                OnDisconnected();
+            }
         }
         finally
         {
             try
             {
-                if (receivedSize != 0 && _socket != null && _socket.Connected)
+                if (!IsClosing && EnablePacketDispatcher && receivedSize != 0 && _socket != null && _socket.Connected)
                     _socket.BeginReceive(_buffer, 0, _buffer.Length, SocketFlags.None, OnBeginReceiveCallback, null);
             }
-            catch
+            catch (Exception error)
             {
-                OnDisconnected();
+                if (!IsClosing && EnablePacketDispatcher)
+                {
+                    Log.Warn($"Could not continue receiving from game server endpoint {IP}:{Port}: {error.Message}");
+                    OnDisconnected();
+                }
             }
         }
     }
