@@ -203,7 +203,11 @@ internal sealed class MainForm : Form
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
 
-        _entries.Add(dialog.CreateEntry());
+        var entry = dialog.CreateEntry();
+        if (!TrySaveLoginDetails(dialog, entry))
+            return;
+
+        _entries.Add(entry);
         SaveEntries();
         RefreshProcessStates();
     }
@@ -219,6 +223,9 @@ internal sealed class MainForm : Form
             return;
 
         var edited = dialog.CreateEntry();
+        if (!TrySaveLoginDetails(dialog, edited, selected))
+            return;
+
         selected.Name = edited.Name;
         selected.ExecutablePath = edited.ExecutablePath;
         selected.Profile = edited.Profile;
@@ -227,6 +234,48 @@ internal sealed class MainForm : Form
         selected.RefreshDisplay();
         _grid.Refresh();
         SaveEntries();
+    }
+
+    private bool TrySaveLoginDetails(AccountDialog dialog, BotEntry target, BotEntry editing = null)
+    {
+        if (!dialog.HasLoginDetails)
+            return true;
+
+        var profileInUse = _entries.FirstOrDefault(other =>
+            other != editing
+            && IsRunning(other)
+            && PathsEqual(other.ExecutablePath, target.ExecutablePath)
+            && string.Equals(NormalizeProfile(other.Profile), NormalizeProfile(target.Profile), StringComparison.OrdinalIgnoreCase)
+        );
+
+        if (profileInUse != null)
+        {
+            MessageBox.Show(
+                this,
+                $"The profile '{target.Profile}' is currently used by the running instance '{profileInUse.Name}'. Stop that instance before changing its saved login details.",
+                "Profile is running",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning
+            );
+            return false;
+        }
+
+        try
+        {
+            ProfileAccountStore.Upsert(target.ExecutablePath, target.Profile, dialog.Credentials);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not save login details to profile '{target.Profile}'.\\n\\n{ex.Message}",
+                "Save login details failed",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
+            return false;
+        }
     }
 
     private void RemoveSelected()
