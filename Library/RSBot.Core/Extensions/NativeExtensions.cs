@@ -25,7 +25,7 @@ public static class NativeExtensions
     [DllImport("user32.dll")]
     public static extern int SetWindowText(IntPtr hWnd, string text);
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CreateProcess /*A*/
     (
         string lpApplicationName,
@@ -52,7 +52,7 @@ public static class NativeExtensions
         out IntPtr lpNumberOfBytesRead
     );
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool WriteProcessMemory(
         IntPtr hProcess,
         IntPtr lpBaseAddress,
@@ -61,22 +61,22 @@ public static class NativeExtensions
         out IntPtr lpNumberOfBytesWritten
     );
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
 
-    [DllImport("kernel32")]
+    [DllImport("kernel32", SetLastError = true)]
     public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
     [DllImport("kernel32.dll")]
     public static extern IntPtr GetModuleHandleA(string lpModuleName);
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr GetModuleHandleW(string lpModuleName);
 
     [DllImport("kernel32.dll")]
     public static extern bool CloseHandle(IntPtr handle);
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern IntPtr CreateRemoteThread(
         IntPtr hProcess,
         IntPtr lpThreadAttributes,
@@ -90,7 +90,7 @@ public static class NativeExtensions
     [DllImport("kernel32.dll")]
     public static extern IntPtr OpenThread(uint dwDesiredAccess, bool bInheritHandle, uint dwThreadId);
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern uint ResumeThread(IntPtr hThread);
 
     [DllImport("kernel32.dll")]
@@ -108,7 +108,7 @@ public static class NativeExtensions
     [DllImport("kernel32.dll")]
     public static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
 
     [DllImport("kernel32.dll")]
