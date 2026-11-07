@@ -155,6 +155,20 @@ public partial class SplashScreen : UIWindow
         {
             try
             {
+                Program.WriteManagerDiagnostic("Preparing game proxy before launching Silkroad client.");
+
+                // ClientManager writes the local proxy port into the loader config.
+                // Initialize the proxy first so the client is redirected through OasisBot.
+                if (Kernel.Proxy == null || Kernel.Proxy.Port == 0)
+                    Game.Start();
+
+                if (Kernel.Proxy == null || Kernel.Proxy.Port == 0)
+                    throw new InvalidOperationException("The game proxy could not be initialized.");
+
+                Program.WriteManagerDiagnostic(
+                    $"Game proxy initialized. Local port: {Kernel.Proxy.Port}"
+                );
+
                 Program.WriteManagerDiagnostic("Launching Silkroad game client after reference data load.");
                 var started = await ClientManager.Start();
                 Program.WriteManagerDiagnostic(
