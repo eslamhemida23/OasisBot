@@ -32,7 +32,7 @@ internal sealed class AccountDialog : Form
         MinimizeBox = false;
         ShowInTaskbar = false;
 
-        _mode.Items.AddRange(new object[] { "Normal", "Launch Client", "Clientless" });
+        _mode.Items.AddRange(new object[] { "Launch Client", "Clientless" });
 
         if (original != null)
         {
@@ -40,13 +40,15 @@ internal sealed class AccountDialog : Form
             _executable.Text = original.ExecutablePath;
             _profile.Text = original.Profile;
             _character.Text = original.Character;
-            _mode.SelectedItem = original.LaunchMode;
+            _mode.SelectedItem = string.Equals(original.LaunchMode, "Clientless", StringComparison.OrdinalIgnoreCase)
+                ? "Clientless"
+                : "Launch Client";
         }
         else
         {
             _name.Text = "Bot instance";
             _profile.Text = "Default";
-            _mode.SelectedItem = "Normal";
+            _mode.SelectedItem = "Launch Client";
         }
 
         BuildLayout();
@@ -61,7 +63,7 @@ internal sealed class AccountDialog : Form
             ExecutablePath = Path.GetFullPath(_executable.Text.Trim()),
             Profile = _profile.Text.Trim(),
             Character = _character.Text.Trim(),
-            LaunchMode = _mode.SelectedItem?.ToString() ?? "Normal",
+            LaunchMode = _mode.SelectedItem?.ToString() ?? "Launch Client",
             LastProcessId = _original?.LastProcessId ?? 0,
             LastProcessStartUtc = _original?.LastProcessStartUtc,
             AttachedProcess = _original?.AttachedProcess,
