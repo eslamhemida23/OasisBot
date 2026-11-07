@@ -42,6 +42,7 @@ public partial class SplashScreen : UIWindow
     {
         if (!LoadProfileConfig())
         {
+            Program.WriteManagerDiagnostic("Startup aborted: profile configuration could not be loaded or profile dialog was cancelled.");
             Environment.Exit(0);
             return;
         }
@@ -102,6 +103,7 @@ public partial class SplashScreen : UIWindow
             else
             {
                 MessageBox.Show(LanguageManager.GetLang("SelectSroDirWarn"));
+                Program.WriteManagerDiagnostic("Startup aborted: no valid Silkroad media.pk2 directory was configured or selected.");
                 Environment.Exit(0);
             }
         }
