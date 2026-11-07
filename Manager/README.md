@@ -18,15 +18,16 @@ A small external Windows application for managing multiple OasisBot instances.
 
 ## Setup
 
-1. Extract the Manager files to a folder of your choice.
-2. Replace the OasisBot.exe in your existing Build folder with the version in the BotUpdate folder included in the release bundle.
-3. Run OasisBot.Manager.exe.
-4. Choose Add instance.
-5. Browse to Build\OasisBot.exe in your OasisBot installation.
-6. Enter a unique profile name for each instance that will run at the same time.
-7. Optionally enter the character name. Leave it blank to let OasisBot use its normal character selection.
-8. Select the launch mode and save.
-9. Select the entry and press Start, or use Start all.
+1. Extract the bundle.
+2. Back up your existing OasisBot installation's Build folder.
+3. Copy **all files and folders inside BotUpdate** into your existing Build folder and allow files to be overwritten. Do not delete or replace your existing Build\Data or Build\User folders; they are intentionally omitted from BotUpdate.
+4. Run OasisBot.Manager.exe from the Manager folder.
+5. Choose Add instance.
+6. Browse to Build\OasisBot.exe in your OasisBot installation.
+7. Enter a unique profile name for each instance that will run at the same time.
+8. Optionally enter the character name. Leave it blank to let OasisBot use its normal character selection.
+9. Select the launch mode and save.
+10. Select the entry and press Start, or use Start all.
 
 The Manager does not store game passwords. It only stores the bot executable, profile, character name, and launch mode.
 
