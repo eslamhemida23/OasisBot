@@ -150,7 +150,7 @@ internal static class Program
                 {
                     if (_managerMainForm != null && !_managerMainForm.IsDisposed && _managerMainForm.IsHandleCreated)
                     {
-                        _managerMainForm.BeginInvoke(new Action(() =>
+                        _managerMainForm.BeginInvoke(new System.Action(() =>
                         {
                             if (!_managerMainForm.IsDisposed)
                                 _managerMainForm.Close();
