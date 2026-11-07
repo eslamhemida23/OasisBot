@@ -95,12 +95,16 @@ public class ProfileManager
     /// <param name="profile">The profile</param>
     public static bool SetSelectedProfile(string profile)
     {
-        if (!_profiles.Any(p => p == profile))
+        var matchedProfile = _profiles.FirstOrDefault(p =>
+            p.Equals(profile, StringComparison.InvariantCultureIgnoreCase)
+        );
+
+        if (matchedProfile == null)
             return false;
 
-        _config.Set("RSBot.SelectedProfile", profile);
+        _config.Set("RSBot.SelectedProfile", matchedProfile);
         _config.Save();
-        _selectedProfile = profile;
+        _selectedProfile = matchedProfile;
 
         return true;
     }
