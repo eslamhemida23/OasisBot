@@ -40,6 +40,12 @@ public class ClientManager
     public static async Task<bool> Start()
     {
         var sessionProxy = Kernel.Proxy;
+        if (sessionProxy == null || sessionProxy.Port == 0)
+        {
+            Log.Error("Cannot launch the Silkroad client because the game proxy is not initialized.");
+            return false;
+        }
+
         VtcClientLayout vtcLayout = null;
         if (Game.ClientType == GameClientType.VTC_Game)
         {
@@ -135,7 +141,7 @@ public class ClientManager
         _process = Process.GetProcessById((int)pi.dwProcessId);
 
         using var vtcStartup = vtcLayout != null ? new VtcClientStartup(pi) : null;
-        PrepareTempConfigFile(pi.dwProcessId, divisionIndex);
+        PrepareTempConfigFile(pi.dwProcessId, divisionIndex, sessionProxy.Port);
 
         if (specialClient)
         {
@@ -675,7 +681,7 @@ public class ClientManager
     /// </summary>
     /// <param name="processId"></param>
     /// <param name="divisionIndex"></param>
-    private static void PrepareTempConfigFile(uint processId, int divisionIndex)
+    private static void PrepareTempConfigFile(uint processId, int divisionIndex, ushort proxyPort)
     {
         var tmpConfigFile = $"OasisBot_{processId}.tmp";
 
@@ -689,7 +695,7 @@ public class ClientManager
 
         writer.Write(GlobalConfig.Get<bool>("RSBot.Loader.DebugMode"));
         writer.WriteAscii(redirectIp);
-        writer.Write(Kernel.Proxy.Port);
+        writer.Write(proxyPort);
         writer.Write(division.GatewayServers.Count);
         foreach (var gatewayServer in division.GatewayServers)
             writer.WriteAscii(gatewayServer);
