@@ -19,6 +19,8 @@ internal sealed class BotEntry : INotifyPropertyChanged
     // Stored so the manager can reconnect to a bot after the manager itself is closed.
     public int LastProcessId { get; set; }
     public DateTime? LastProcessStartUtc { get; set; }
+    public int? LastExitCode { get; set; }
+    public string LastLogPath { get; set; } = "";
 
     [JsonIgnore]
     public Process AttachedProcess { get; set; }
@@ -39,6 +41,9 @@ internal sealed class BotEntry : INotifyPropertyChanged
 
     [JsonIgnore]
     public string ProcessIdDisplay => LastProcessId > 0 ? LastProcessId.ToString() : "—";
+
+    [JsonIgnore]
+    public string ExitCodeDisplay => LastExitCode.HasValue ? LastExitCode.Value.ToString() : "—";
 
     [JsonIgnore]
     public string UptimeDisplay
@@ -72,6 +77,32 @@ internal sealed class BotEntry : INotifyPropertyChanged
         OnPropertyChanged(nameof(ProcessIdDisplay));
         OnPropertyChanged(nameof(UptimeDisplay));
         OnPropertyChanged(nameof(Status));
+    }
+
+    public void MarkExited()
+    {
+        try
+        {
+            if (AttachedProcess != null && AttachedProcess.HasExited)
+                LastExitCode = AttachedProcess.ExitCode;
+        }
+        catch
+        {
+            LastExitCode = null;
+        }
+
+        try
+        {
+            AttachedProcess?.Dispose();
+        }
+        catch
+        {
+            // The process may already have exited.
+        }
+
+        AttachedProcess = null;
+        Status = LastExitCode.HasValue ? $"Exited ({LastExitCode.Value})" : "Exited";
+        RefreshDisplay();
     }
 
     public void ClearProcess()
