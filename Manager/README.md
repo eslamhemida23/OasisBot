@@ -6,6 +6,8 @@ A small external Windows application for managing multiple OasisBot instances.
 
 - Save multiple bot entries with an executable path, profile, character, and launch mode.
 - Start and stop a selected entry or all entries.
+- Start opens the Silkroad game client automatically by default.
+- Stop sends a private command to the matching OasisBot process, saves its settings, and closes its game client.
 - Display process state, process ID, and uptime.
 - Reconnect to managed processes after the Manager is closed and reopened.
 - Keep each active instance on a separate OasisBot profile.
