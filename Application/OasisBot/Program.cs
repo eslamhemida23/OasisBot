@@ -141,33 +141,32 @@ internal static class Program
 
         _ = Task.Run(async () =>
         {
-            // The main window handle may not exist yet while the splash screen is
-            // closing and Application.Run is about to start. Keep the STOP request
-            // pending until either window can receive it.
+            // During startup the splash screen owns the modal message loop.
+            // Close it first; Program.Main will then finish the shutdown path.
             for (var attempt = 0; attempt < 100; attempt++)
             {
                 try
                 {
-                    if (_managerMainForm != null && !_managerMainForm.IsDisposed && _managerMainForm.IsHandleCreated)
-                    {
-                        _managerMainForm.BeginInvoke(new System.Action(() =>
-                        {
-                            if (!_managerMainForm.IsDisposed)
-                                _managerMainForm.Close();
-                        }));
-                        return;
-                    }
-
                     if (
                         _managerSplashScreen != null
                         && !_managerSplashScreen.IsDisposed
                         && _managerSplashScreen.IsHandleCreated
                     )
                     {
-                        _managerSplashScreen.BeginInvoke(new Action(() =>
+                        _managerSplashScreen.BeginInvoke(new System.Action(() =>
                         {
                             if (!_managerSplashScreen.IsDisposed)
                                 _managerSplashScreen.Close();
+                        }));
+                        return;
+                    }
+
+                    if (_managerMainForm != null && !_managerMainForm.IsDisposed && _managerMainForm.IsHandleCreated)
+                    {
+                        _managerMainForm.BeginInvoke(new System.Action(() =>
+                        {
+                            if (!_managerMainForm.IsDisposed)
+                                _managerMainForm.Close();
                         }));
                         return;
                     }
