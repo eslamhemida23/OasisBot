@@ -139,35 +139,50 @@ internal static class Program
     {
         _managerStopRequested = true;
 
-        try
+        _ = Task.Run(async () =>
         {
-            if (_managerMainForm != null && !_managerMainForm.IsDisposed && _managerMainForm.IsHandleCreated)
+            // The main window handle may not exist yet while the splash screen is
+            // closing and Application.Run is about to start. Keep the STOP request
+            // pending until either window can receive it.
+            for (var attempt = 0; attempt < 100; attempt++)
             {
-                _managerMainForm.BeginInvoke(new Action(() =>
+                try
                 {
-                    if (!_managerMainForm.IsDisposed)
-                        _managerMainForm.Close();
-                }));
-                return;
+                    if (_managerMainForm != null && !_managerMainForm.IsDisposed && _managerMainForm.IsHandleCreated)
+                    {
+                        _managerMainForm.BeginInvoke(new Action(() =>
+                        {
+                            if (!_managerMainForm.IsDisposed)
+                                _managerMainForm.Close();
+                        }));
+                        return;
+                    }
+
+                    if (
+                        _managerSplashScreen != null
+                        && !_managerSplashScreen.IsDisposed
+                        && _managerSplashScreen.IsHandleCreated
+                    )
+                    {
+                        _managerSplashScreen.BeginInvoke(new Action(() =>
+                        {
+                            if (!_managerSplashScreen.IsDisposed)
+                                _managerSplashScreen.Close();
+                        }));
+                        return;
+                    }
+                }
+                catch (Exception error)
+                {
+                    WriteManagerDiagnostic("Could not dispatch Manager STOP to the UI: " + error.Message);
+                }
+
+                await Task.Delay(100).ConfigureAwait(false);
             }
 
-            if (
-                _managerSplashScreen != null
-                && !_managerSplashScreen.IsDisposed
-                && _managerSplashScreen.IsHandleCreated
-            )
-            {
-                _managerSplashScreen.BeginInvoke(new Action(() =>
-                {
-                    if (!_managerSplashScreen.IsDisposed)
-                        _managerSplashScreen.Close();
-                }));
-            }
-        }
-        catch (Exception error)
-        {
-            WriteManagerDiagnostic("Could not dispatch Manager STOP to the UI: " + error.Message);
-        }
+            if (_managerStopRequested)
+                ShutdownBeforeMainWindow();
+        });
     }
 
     private static void ShutdownBeforeMainWindow()
