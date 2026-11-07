@@ -130,12 +130,16 @@ public class ClientManager
         )
             return false;
 
+        // Keep an owned Process handle as soon as Windows creates the client.
+        // The Manager may request STOP while client injection/startup is still running.
+        _process = Process.GetProcessById((int)pi.dwProcessId);
+
         using var vtcStartup = vtcLayout != null ? new VtcClientStartup(pi) : null;
         PrepareTempConfigFile(pi.dwProcessId, divisionIndex);
 
         if (specialClient)
         {
-            Process sroProcess = Process.GetProcessById((int)pi.dwProcessId);
+            Process sroProcess = _process;
 
             if (Game.ClientType == GameClientType.VTC_Game)
             {
@@ -236,7 +240,6 @@ public class ClientManager
             ResumeThread(pi.hThread);
             ResumeThread(pi.hProcess);
 
-            _process = Process.GetProcessById((int)pi.dwProcessId);
             if (_process == null || _process.HasExited)
                 return false;
         }
