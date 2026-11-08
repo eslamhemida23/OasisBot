@@ -152,6 +152,7 @@ namespace RSBot.XControl
         private static bool _hasLastFollowPlayerPosition;
         private static bool _followExactPosition;
         private static PendingTeleport _pendingTeleport;
+        private static bool _attendanceCheckRunning;
 
         public static event System.Action<string> StatusChanged;
 
@@ -500,6 +501,13 @@ namespace RSBot.XControl
 
                 case "CHAT":
                     SendChatCommand(args);
+                    break;
+
+                case "ATTENDANCE":
+                case "ATTEND":
+                case "CHECKIN":
+                case "CHECKATTENDANCE":
+                    CheckAttendance();
                     break;
 
                 case "DC":
@@ -956,6 +964,85 @@ namespace RSBot.XControl
             PlayerConfig.Set("RSBot.Area.Radius", radius);
             EventManager.FireEvent("OnSetTrainingArea");
             Log.Notify("[xControl] Training radius set to " + radius);
+        }
+
+        private static void CheckAttendance()
+        {
+            if (!IsConnected)
+            {
+                Log.Warn("[xControl] Cannot check attendance: not connected to the Agent server.");
+                return;
+            }
+
+            lock (Sync)
+            {
+                if (_attendanceCheckRunning)
+                {
+                    Log.Warn("[xControl] Attendance check is already in progress.");
+                    return;
+                }
+
+                _attendanceCheckRunning = true;
+            }
+
+            var sessionProxy = Kernel.Proxy;
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    // The attendance window first requests the calendar data, then submits
+                    // today's attendance check. This is the 0x74DD protocol used by the
+                    // attendance event in Silkroad clients.
+                    var openAttendance = new Packet(0x74DD);
+                    openAttendance.WriteByte(0x01);
+                    PacketManager.SendPacket(openAttendance, PacketDestination.Server);
+
+                    Log.Notify("[xControl] Attendance calendar request sent; checking today's attendance in 5 seconds.");
+
+                    await System.Threading.Tasks.Task.Delay(5000);
+
+                    if (!ReferenceEquals(sessionProxy, Kernel.Proxy) || !IsConnected)
+                    {
+                        Log.Warn("[xControl] Attendance check cancelled because the game connection changed.");
+                        return;
+                    }
+
+                    var checkAttendance = new Packet(0x74DD);
+                    checkAttendance.WriteByte(0x02);
+                    PacketManager.SendPacket(checkAttendance, PacketDestination.Server);
+
+                    Log.Notify("[xControl] Today's attendance check request sent. Waiting for server confirmation.");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[xControl] Attendance check failed: " + ex.Message);
+                }
+                finally
+                {
+                    lock (Sync)
+                        _attendanceCheckRunning = false;
+                }
+            });
+        }
+
+        public static void HandleAttendanceResponse(Packet packet)
+        {
+            try
+            {
+                if (packet == null || packet.Remaining < 2)
+                    return;
+
+                var action = packet.ReadByte();
+                var result = packet.ReadByte();
+
+                // On the known attendance response, 02 01 means the daily check completed.
+                if (action == 0x02 && result == 0x01)
+                    Log.Notify("[xControl] Server confirmed: today's attendance was checked successfully.");
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("[xControl] Could not read attendance response: " + ex.Message);
+            }
         }
 
         private static void SendChatCommand(string args)
@@ -1439,6 +1526,20 @@ namespace RSBot.XControl
         public void Invoke(Packet packet)
         {
             XControlService.ConfirmTeleportResponse();
+        }
+    }
+
+    /// <summary>
+    /// Observes the server response to the attendance check request.
+    /// </summary>
+    public sealed class XControlAttendanceResponseObserver : IPacketHandler
+    {
+        public ushort Opcode => 0xB4DD;
+        public PacketDestination Destination => PacketDestination.Client;
+
+        public void Invoke(Packet packet)
+        {
+            XControlService.HandleAttendanceResponse(packet);
         }
     }
 }
