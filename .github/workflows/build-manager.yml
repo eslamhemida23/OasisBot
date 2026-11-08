@@ -32,6 +32,9 @@ jobs:
       - name: Build OasisBot with manager shutdown support
         run: msbuild Application/OasisBot/OasisBot.csproj /restore /m /p:Configuration=Release /p:Platform=x86
 
+      - name: Build xControl party command plugin
+        run: msbuild Plugins/RSBot.XControl/RSBot.XControl.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+
       - name: Verify and package outputs
         shell: pwsh
         run: |
@@ -41,7 +44,8 @@ jobs:
             "Build/OasisBot.exe",
             "Build/OasisBot.dll",
             "Build/RSBot.Core.dll",
-            "Build/SDUI.dll"
+            "Build/SDUI.dll",
+            "Build/Data/Plugins/RSBot.XControl.dll"
           )
 
           if (!(Test-Path $managerExe)) {
@@ -66,11 +70,20 @@ jobs:
               Copy-Item $_.FullName "$stage/BotUpdate/" -Recurse -Force
             }
 
-          foreach ($file in $requiredBotFiles) {
+          foreach ($file in $requiredBotFiles | Where-Object { $_ -notlike "Build/Data/*" }) {
             $name = Split-Path $file -Leaf
             if (!(Test-Path "$stage/BotUpdate/$name")) {
               throw "Bot update bundle is missing: $name"
             }
+          }
+
+          # Data and User are normally preserved, but include only the updated xControl DLL
+          # so the plugin can be replaced without overwriting user settings or other data.
+          New-Item -ItemType Directory -Force -Path "$stage/BotUpdate/Data/Plugins" | Out-Null
+          Copy-Item "Build/Data/Plugins/RSBot.XControl.dll" "$stage/BotUpdate/Data/Plugins/RSBot.XControl.dll" -Force
+
+          if (!(Test-Path "$stage/BotUpdate/Data/Plugins/RSBot.XControl.dll")) {
+            throw "Bot update bundle is missing the updated RSBot.XControl.dll."
           }
 
           Compress-Archive -Path "$stage/*" -DestinationPath "OasisBot-Manager-Bundle.zip" -Force
