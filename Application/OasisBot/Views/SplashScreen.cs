@@ -108,7 +108,12 @@ public partial class SplashScreen : UIWindow
             }
         }
 
-        InitializeBot();
+        if (!InitializeBot())
+        {
+            Program.WriteManagerDiagnostic("Startup aborted because plugins or botbases could not be initialized.");
+            Close();
+            return;
+        }
 
         referenceDataLoader.RunWorkerAsync();
     }
@@ -257,7 +262,7 @@ public partial class SplashScreen : UIWindow
     /// <summary>
     ///     Initializes the bot.
     /// </summary>
-    private void InitializeBot()
+    private bool InitializeBot()
     {
         //---- Boot kernel -----
         Kernel.Initialize();
@@ -267,24 +272,28 @@ public partial class SplashScreen : UIWindow
         if (!Kernel.PluginManager.LoadAssemblies())
         {
             MessageBox.Show(
-                @"Failed to load plugins. Process canceled!",
+                @"Failed to load plugins. Process canceled! Check Data\\Logs\\boot-error.log for details.",
                 @"Initialize Application - Error",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error
             );
-            return;
+            return false;
         }
 
         //---- Load Botbases ----
         if (!Kernel.BotbaseManager.LoadAssemblies())
+        {
             MessageBox.Show(
-                @"Failed to load botbases. Process canceled!",
+                @"Failed to load botbases. Process canceled! Check Data\\Logs\\boot-error.log for details.",
                 @"Initialize Application - Error",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error
             );
+            return false;
+        }
 
         CommandManager.Initialize();
+        return true;
     }
 
     /// <summary>
