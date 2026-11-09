@@ -29,14 +29,30 @@ namespace RSBot.Party
 
         private async void OnEnterGame()
         {
-            await Task.Delay(5000);
+            var sessionProxy = Kernel.Proxy;
+            if (sessionProxy == null)
+                return;
 
-            if (
-                Game.Ready
-                && Bundle.Container.PartyMatching.Config.AutoReform
-                && !Bundle.Container.PartyMatching.HasMatchingEntry
-            )
-                Bundle.Container.PartyMatching.Create();
+            try
+            {
+                await Task.Delay(5000);
+
+                if (
+                    !Game.Ready
+                    || !ReferenceEquals(Kernel.Proxy, sessionProxy)
+                    || !sessionProxy.IsConnectedToAgentserver
+                    || Bundle.Container?.PartyMatching?.Config == null
+                )
+                    return;
+
+                var matching = Bundle.Container.PartyMatching;
+                if (matching.Config.AutoReform && !matching.HasMatchingEntry)
+                    matching.Create();
+            }
+            catch (Exception error)
+            {
+                Log.Error("[Party] Enter-game auto-reform handler failed: " + error);
+            }
         }
 
         private void OnPartyMemberLeave(PartyMember member)

@@ -50,184 +50,206 @@ namespace RSBot.General
 
         private async void OnAgentServerDisconnected()
         {
-            Kernel.Bot.Stop();
-
-            // Skiped: Cuz managing from ClientlessManager
-            if (Game.Clientless)
-                return;
-
-            ClientManager.Kill();
-
-            if (GlobalConfig.Get<bool>("RSBot.General.EnableAutomatedLogin"))
+            try
             {
-                var reloginSeq = Interlocked.Increment(ref _reloginSeq);
+                Kernel.Bot.Stop();
 
-                EventManager.FireEvent("OnAutoReloginStarted");
-
-                int delay = 10000;
-                if (GlobalConfig.Get("RSBot.General.EnableWaitAfterDC", false))
-                    delay = GlobalConfig.Get<int>("RSBot.General.WaitAfterDC") * 60 * 1000;
-
-                Log.Warn($"Attempting relogin in {delay / 1000} seconds...");
-                await Task.Delay(delay);
-
-                if (reloginSeq != Volatile.Read(ref _reloginSeq))
+                // Skiped: Cuz managing from ClientlessManager
+                if (Game.Clientless)
                     return;
 
-                var userAuthenticated = await HandleRegionalAuth();
-                if (!userAuthenticated)
-                {
-                    Log.Warn("Regional auth failed!");
-                    return;
-                }
+                ClientManager.Kill();
 
-                await StartClientProcess();
-                return;
-            }
-            EventManager.FireEvent("OnClientDisconnected");
-        }
-
-        private async void OnGatewayServerDisconnected()
-        {
-            AutoLogin.Pending = false;
-            EventManager.FireEvent("OnAutoLoginAborted");
-
-            var disconnectedProxy = Kernel.Proxy;
-            if (disconnectedProxy == null)
-                return;
-
-            var wasClientless = Game.Clientless;
-            var autoLoginEnabled = GlobalConfig.Get<bool>("RSBot.General.EnableAutomatedLogin");
-
-            Log.Warn(
-                $"Gateway connection dropped. AgentConnected={disconnectedProxy.IsConnectedToAgentserver}, " +
-                $"SwitchingToAgent={disconnectedProxy.IsSwitchingToAgentserver}, " +
-                $"Clientless={wasClientless}, AutomatedLogin={autoLoginEnabled}."
-            );
-
-            if (!disconnectedProxy.IsConnectedToAgentserver && !disconnectedProxy.IsSwitchingToAgentserver)
-            {
-                if (autoLoginEnabled)
+                if (GlobalConfig.Get<bool>("RSBot.General.EnableAutomatedLogin"))
                 {
                     var reloginSeq = Interlocked.Increment(ref _reloginSeq);
 
                     EventManager.FireEvent("OnAutoReloginStarted");
 
-                    // Gateway disconnect can happen briefly during Gateway -> Agent switch (or the switch can start late
-                    // due to thread scheduling). Give it a short grace period before we decide it's a real DC.
-                    await Task.Delay(2000);
-
-                    if (
-                        reloginSeq != Volatile.Read(ref _reloginSeq)
-                        || !ReferenceEquals(Kernel.Proxy, disconnectedProxy)
-                    )
-                        return;
-
-                    if (disconnectedProxy.IsConnectedToAgentserver || disconnectedProxy.IsSwitchingToAgentserver)
-                        return;
-
-                    EventManager.FireEvent("OnAutoReloginOngoing");
-
-                    Log.StatusLang("Ready");
-                    disconnectedProxy.Shutdown();
-
                     int delay = 10000;
                     if (GlobalConfig.Get("RSBot.General.EnableWaitAfterDC", false))
                         delay = GlobalConfig.Get<int>("RSBot.General.WaitAfterDC") * 60 * 1000;
 
-                    Log.Warn(
-                        $"Gateway is still disconnected. Automatic login will restart the " +
-                        $"{(wasClientless ? "clientless connection" : "Silkroad client")} in {delay / 1000} seconds."
-                    );
+                    Log.Warn($"Attempting relogin in {delay / 1000} seconds...");
                     await Task.Delay(delay);
 
-                    // Prevent double-start if another connection or manual action replaced this proxy.
-                    if (
-                        reloginSeq != Volatile.Read(ref _reloginSeq)
-                        || !ReferenceEquals(Kernel.Proxy, disconnectedProxy)
-                    )
+                    if (reloginSeq != Volatile.Read(ref _reloginSeq))
                         return;
 
                     var userAuthenticated = await HandleRegionalAuth();
                     if (!userAuthenticated)
                     {
-                        Log.Warn("Regional authentication failed; automatic relogin was cancelled.");
+                        Log.Warn("Regional auth failed!");
                         return;
                     }
 
-                    if (wasClientless)
-                    {
-                        // Clientless relogin: restart proxy flow only.
-                        Game.Clientless = true;
-                        Log.Notify("Restarting the clientless gateway connection...");
-                        Game.Start();
-                    }
-                    else
-                    {
-                        // Client relogin: the old client belongs to the disconnected proxy session.
-                        if (ClientManager.IsRunning)
-                        {
-                            Log.Warn("Closing the disconnected Silkroad client before automatic relogin.");
-                            ClientManager.Kill();
-                        }
-
-                        await StartClientProcess();
-                    }
-
+                    await StartClientProcess();
                     return;
                 }
 
                 EventManager.FireEvent("OnClientDisconnected");
+            }
+            catch (Exception error)
+            {
+                Log.Error("[General] Agent-server disconnect handler failed: " + error);
+            }
+        }
 
-                Log.StatusLang("Ready");
-                disconnectedProxy.Shutdown();
+        private async void OnGatewayServerDisconnected()
+        {
+            try
+            {
+                AutoLogin.Pending = false;
+                EventManager.FireEvent("OnAutoLoginAborted");
 
-                Game.Clientless = false;
+                var disconnectedProxy = Kernel.Proxy;
+                if (disconnectedProxy == null)
+                    return;
+
+                var wasClientless = Game.Clientless;
+                var autoLoginEnabled = GlobalConfig.Get<bool>("RSBot.General.EnableAutomatedLogin");
+
+                Log.Warn(
+                    $"Gateway connection dropped. AgentConnected={disconnectedProxy.IsConnectedToAgentserver}, " +
+                    $"SwitchingToAgent={disconnectedProxy.IsSwitchingToAgentserver}, " +
+                    $"Clientless={wasClientless}, AutomatedLogin={autoLoginEnabled}."
+                );
+
+                if (!disconnectedProxy.IsConnectedToAgentserver && !disconnectedProxy.IsSwitchingToAgentserver)
+                {
+                    if (autoLoginEnabled)
+                    {
+                        var reloginSeq = Interlocked.Increment(ref _reloginSeq);
+
+                        EventManager.FireEvent("OnAutoReloginStarted");
+
+                        // Gateway disconnect can happen briefly during Gateway -> Agent switch.
+                        await Task.Delay(2000);
+
+                        if (
+                            reloginSeq != Volatile.Read(ref _reloginSeq)
+                            || !ReferenceEquals(Kernel.Proxy, disconnectedProxy)
+                        )
+                            return;
+
+                        if (disconnectedProxy.IsConnectedToAgentserver || disconnectedProxy.IsSwitchingToAgentserver)
+                            return;
+
+                        EventManager.FireEvent("OnAutoReloginOngoing");
+
+                        Log.StatusLang("Ready");
+                        disconnectedProxy.Shutdown();
+
+                        int delay = 10000;
+                        if (GlobalConfig.Get("RSBot.General.EnableWaitAfterDC", false))
+                            delay = GlobalConfig.Get<int>("RSBot.General.WaitAfterDC") * 60 * 1000;
+
+                        Log.Warn(
+                            "Gateway is still disconnected. Automatic login will restart the " +
+                            $"{(wasClientless ? "clientless connection" : "Silkroad client")} in {delay / 1000} seconds."
+                        );
+                        await Task.Delay(delay);
+
+                        if (
+                            reloginSeq != Volatile.Read(ref _reloginSeq)
+                            || !ReferenceEquals(Kernel.Proxy, disconnectedProxy)
+                        )
+                            return;
+
+                        var userAuthenticated = await HandleRegionalAuth();
+                        if (!userAuthenticated)
+                        {
+                            Log.Warn("Regional authentication failed; automatic relogin was cancelled.");
+                            return;
+                        }
+
+                        if (
+                            reloginSeq != Volatile.Read(ref _reloginSeq)
+                            || !ReferenceEquals(Kernel.Proxy, disconnectedProxy)
+                        )
+                            return;
+
+                        if (wasClientless)
+                        {
+                            Game.Clientless = true;
+                            Log.Notify("Restarting the clientless gateway connection...");
+                            Game.Start();
+                        }
+                        else
+                        {
+                            if (ClientManager.IsRunning)
+                            {
+                                Log.Warn("Closing the disconnected Silkroad client before automatic relogin.");
+                                ClientManager.Kill();
+                            }
+
+                            await StartClientProcess();
+                        }
+
+                        return;
+                    }
+
+                    EventManager.FireEvent("OnClientDisconnected");
+
+                    Log.StatusLang("Ready");
+                    disconnectedProxy.Shutdown();
+
+                    Game.Clientless = false;
+                }
+            }
+            catch (Exception error)
+            {
+                Log.Error("[General] Gateway-server disconnect handler failed: " + error);
             }
         }
 
         private async void OnEnterGame()
         {
-            var sessionProxy = Kernel.Proxy;
-            if (sessionProxy == null)
-                return;
-
-            // Game.Ready can lag behind the enter-game event, but the wait must end
-            // if this connection is replaced or the server disconnects.
-            const int readinessTimeoutMs = 60000;
-            const int pollIntervalMs = 100;
-            var attempts = readinessTimeoutMs / pollIntervalMs;
-
-            for (var attempt = 0; attempt < attempts && !Game.Ready; attempt++)
+            try
             {
-                if (
-                    !ReferenceEquals(Kernel.Proxy, sessionProxy)
-                    || !sessionProxy.IsConnectedToAgentserver
-                )
+                var sessionProxy = Kernel.Proxy;
+                if (sessionProxy == null)
                     return;
 
-                await Task.Delay(pollIntervalMs);
-            }
+                const int readinessTimeoutMs = 60000;
+                const int pollIntervalMs = 100;
+                var attempts = readinessTimeoutMs / pollIntervalMs;
 
-            if (
-                !Game.Ready
-                || Game.Player == null
-                || !ReferenceEquals(Kernel.Proxy, sessionProxy)
-                || !sessionProxy.IsConnectedToAgentserver
-            )
+                for (var attempt = 0; attempt < attempts && !Game.Ready; attempt++)
+                {
+                    if (
+                        !ReferenceEquals(Kernel.Proxy, sessionProxy)
+                        || !sessionProxy.IsConnectedToAgentserver
+                    )
+                        return;
+
+                    await Task.Delay(pollIntervalMs);
+                }
+
+                if (
+                    !Game.Ready
+                    || Game.Player == null
+                    || !ReferenceEquals(Kernel.Proxy, sessionProxy)
+                    || !sessionProxy.IsConnectedToAgentserver
+                )
+                {
+                    Log.Warn("[General] Enter-game initialization did not become ready within 60 seconds; ignoring the stale event.");
+                    return;
+                }
+
+                var startBot = GlobalConfig.Get<bool>("RSBot.General.StartBot");
+                var useReturnScroll = GlobalConfig.Get<bool>("RSBot.General.UseReturnScroll");
+
+                if (useReturnScroll)
+                    Game.Player.UseReturnScroll();
+
+                if (startBot)
+                    Kernel.Bot.Start();
+            }
+            catch (Exception error)
             {
-                Log.Warn("[General] Enter-game initialization did not become ready within 60 seconds; ignoring the stale event.");
-                return;
+                Log.Error("[General] Enter-game handler failed: " + error);
             }
-
-            var startBot = GlobalConfig.Get<bool>("RSBot.General.StartBot");
-            var useReturnScroll = GlobalConfig.Get<bool>("RSBot.General.UseReturnScroll");
-
-            if (useReturnScroll)
-                Game.Player.UseReturnScroll();
-
-            if (startBot)
-                Kernel.Bot.Start();
         }
 
         private void OnExitClient()

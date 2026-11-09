@@ -9,6 +9,7 @@ namespace RSBot.Core.Components;
 public class ClientlessManager
 {
     private static int _keepAliveGeneration;
+    private static int _reloginGeneration;
 
     /// <summary>
     ///     Optional regional authentication handler provided by the host plugin.
@@ -87,21 +88,48 @@ public class ClientlessManager
         if (!Game.Clientless)
             return;
 
-        int delay = 10000;
-        if (GlobalConfig.Get("RSBot.General.EnableWaitAfterDC", false))
-            delay = GlobalConfig.Get<int>("RSBot.General.WaitAfterDC") * 60 * 1000;
-
-        Log.Warn($"Attempting relogin in {delay / 1000} seconds...");
-        await Task.Delay(delay);
-
-        var userAuthenticated = await HandleRegionalAuth();
-        if (!userAuthenticated)
-        {
-            Log.Warn("Regional auth failed!");
+        var sessionProxy = Kernel.Proxy;
+        if (sessionProxy == null)
             return;
-        }
 
-        Game.Start();
+        var generation = Interlocked.Increment(ref _reloginGeneration);
+        try
+        {
+            int delay = 10000;
+            if (GlobalConfig.Get("RSBot.General.EnableWaitAfterDC", false))
+                delay = GlobalConfig.Get<int>("RSBot.General.WaitAfterDC") * 60 * 1000;
+
+            Log.Warn($"Attempting relogin in {delay / 1000} seconds...");
+            await Task.Delay(delay);
+
+            if (
+                generation != Volatile.Read(ref _reloginGeneration)
+                || !Game.Clientless
+                || !ReferenceEquals(Kernel.Proxy, sessionProxy)
+                || sessionProxy.IsConnectedToAgentserver
+            )
+                return;
+
+            var userAuthenticated = await HandleRegionalAuth();
+            if (!userAuthenticated)
+            {
+                Log.Warn("Regional auth failed!");
+                return;
+            }
+
+            if (
+                generation != Volatile.Read(ref _reloginGeneration)
+                || !Game.Clientless
+                || !ReferenceEquals(Kernel.Proxy, sessionProxy)
+            )
+                return;
+
+            Game.Start();
+        }
+        catch (Exception error)
+        {
+            Log.Error("[Clientless] Automatic relogin failed: " + error);
+        }
     }
 
     /// <summary>
@@ -109,6 +137,8 @@ public class ClientlessManager
     /// </summary>
     private static void OnAgentServerConnected()
     {
+        Interlocked.Increment(ref _reloginGeneration);
+
         if (!Game.Clientless)
             return;
 
@@ -122,23 +152,32 @@ public class ClientlessManager
     {
         var proxy = Kernel.Proxy;
         var generation = Interlocked.Increment(ref _keepAliveGeneration);
-        while (
-            ReferenceEquals(Kernel.Proxy, proxy)
-            && proxy != null
-            && Game.Clientless
-            && proxy.IsConnectedToAgentserver
-            && generation == Volatile.Read(ref _keepAliveGeneration)
-        )
+        try
         {
-            await Task.Delay(10000);
-            if (
-                !ReferenceEquals(Kernel.Proxy, proxy)
-                || !Game.Clientless
-                || !proxy.IsConnectedToAgentserver
-                || generation != Volatile.Read(ref _keepAliveGeneration)
+            while (
+                ReferenceEquals(Kernel.Proxy, proxy)
+                && proxy != null
+                && Game.Clientless
+                && proxy.IsConnectedToAgentserver
+                && generation == Volatile.Read(ref _keepAliveGeneration)
             )
-                return;
-            PacketManager.SendPacket(new Packet(0x2002), PacketDestination.Server, proxy);
+            {
+                await Task.Delay(10000);
+
+                if (
+                    !ReferenceEquals(Kernel.Proxy, proxy)
+                    || !Game.Clientless
+                    || !proxy.IsConnectedToAgentserver
+                    || generation != Volatile.Read(ref _keepAliveGeneration)
+                )
+                    return;
+
+                PacketManager.SendPacket(new Packet(0x2002), PacketDestination.Server, proxy);
+            }
+        }
+        catch (Exception error)
+        {
+            Log.Error("[Clientless] Keep-alive worker failed: " + error);
         }
     }
 }
