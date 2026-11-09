@@ -99,7 +99,8 @@ public class AwaitCallback
         Predicate = predicate;
         ResponseOpcode = responseOpcode;
 
-        _invoked = _timeout = _succeeded = _waited = false;
+        _invoked = _timeout = _succeeded = false;
+        _waited = 0;
     }
 
     /// <summary>
