@@ -112,32 +112,68 @@ internal class AutoPartyBundle
         if (!Config.AutoJoinByName && !Config.AutoJoinByTitle)
             return;
 
+        // Always keep a usable cache. The initial one-minute refresh delay must not
+        // leave this null when AutoJoin is enabled shortly after the bot starts.
+        _partyEntriesCache ??= new List<PartyEntry>();
+
         var elapsed = Kernel.TickCount - _lastPartyListingCacheTick;
 
-        // every one minute
+        // Refresh every minute. A missing/malformed response must end the page loop,
+        // otherwise the byte page counter can wrap and keep the game tick blocked.
         if (elapsed >= 60000)
         {
-            _partyEntriesCache = new List<PartyEntry>(64);
+            var refreshedEntries = new List<PartyEntry>(64);
+            const int maxPagesPerRefresh = 64;
+            byte expectedPageCount = 0;
 
-            byte page = 0;
-            while (true)
+            for (var pageIndex = 0; pageIndex < maxPagesPerRefresh; pageIndex++)
             {
-                var currentPage = Container.PartyMatching.RequestPartyList(page);
+                var currentPage = Container.PartyMatching.RequestPartyList((byte)pageIndex);
 
-                _partyEntriesCache.AddRange(currentPage.Parties);
+                if (
+                    currentPage == null
+                    || currentPage.PageCount == 0
+                    || currentPage.Parties == null
+                )
+                {
+                    Log.Warn($"[Party] Auto-join party list page {pageIndex} was not received; stopping this refresh.");
+                    break;
+                }
 
-                if (currentPage.Page == currentPage.PageCount - 1)
+                if (currentPage.Page != pageIndex)
+                {
+                    Log.Warn(
+                        $"[Party] Auto-join received page {currentPage.Page} while requesting page {pageIndex}; " +
+                        "stopping this refresh to avoid looping on an inconsistent response."
+                    );
+                    break;
+                }
+
+                if (expectedPageCount == 0)
+                    expectedPageCount = currentPage.PageCount;
+                else if (currentPage.PageCount != expectedPageCount)
+                {
+                    Log.Warn("[Party] Auto-join party list page count changed during refresh; keeping the pages received so far.");
+                    break;
+                }
+
+                refreshedEntries.AddRange(currentPage.Parties);
+
+                if (currentPage.Page >= currentPage.PageCount - 1)
                     break;
 
-                page++;
+                if (pageIndex == maxPagesPerRefresh - 1)
+                    Log.Warn($"[Party] Auto-join party list exceeded the {maxPagesPerRefresh}-page safety limit.");
             }
 
+            _partyEntriesCache = refreshedEntries;
             _lastPartyListingCacheTick = Kernel.TickCount;
         }
 
         if (Config.AutoJoinByName)
         {
-            var partyEntry = _partyEntriesCache.Find(p => p.Leader == Config.AutoJoinByNameContent);
+            var partyEntry = _partyEntriesCache.Find(p =>
+                string.Equals(p.Leader, Config.AutoJoinByNameContent, StringComparison.OrdinalIgnoreCase));
             if (partyEntry == null)
                 return;
 
@@ -147,9 +183,13 @@ internal class AutoPartyBundle
 
         if (Config.AutoJoinByTitle)
         {
+            var title = Config.AutoJoinByTitleContent ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(title))
+                return;
+
             var partyEntry = _partyEntriesCache.Find(p =>
-                p.Title.Contains(Config.AutoJoinByTitleContent, StringComparison.CurrentCultureIgnoreCase)
-            );
+                !string.IsNullOrWhiteSpace(p.Title)
+                && p.Title.Contains(title, StringComparison.CurrentCultureIgnoreCase));
             if (partyEntry == null)
                 return;
 
