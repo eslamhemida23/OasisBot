@@ -41,7 +41,7 @@ namespace RSBot.Party
                     !Game.Ready
                     || !ReferenceEquals(Kernel.Proxy, sessionProxy)
                     || !sessionProxy.IsConnectedToAgentserver
-                    || Bundle.Container?.PartyMatching?.Config == null
+                    || Bundle.Container.PartyMatching?.Config == null
                 )
                     return;
 
