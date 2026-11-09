@@ -27,7 +27,8 @@ public static class SpawnManager
     public static T GetEntity<T>(uint uniqueId)
         where T : SpawnedEntity
     {
-        return (T)_entities.Find(p => p != null && p.UniqueId == uniqueId);
+        lock (_lock)
+            return _entities.Find(p => p is T entity && entity.UniqueId == uniqueId) as T;
     }
 
     /// <summary>
@@ -38,7 +39,11 @@ public static class SpawnManager
     public static T GetEntity<T>(Func<T, bool> condition)
         where T : SpawnedEntity
     {
-        return (T)_entities.Find(p => p is T entityT && condition(entityT));
+        if (condition == null)
+            return null;
+
+        lock (_lock)
+            return _entities.Find(p => p is T entityT && condition(entityT)) as T;
     }
 
     /// <summary>
@@ -63,17 +68,20 @@ public static class SpawnManager
     public static bool TryGetEntityIncludingMe(uint uniqueId, out SpawnedEntity entity)
     {
         entity = null;
+        var player = Game.Player;
+        if (player == null)
+            return false;
 
-        if (uniqueId == Game.Player.UniqueId)
-            entity = Game.Player;
-        else if (Game.Player.Transport?.UniqueId == uniqueId)
-            entity = Game.Player.Transport;
-        else if (Game.Player.JobTransport?.UniqueId == uniqueId)
-            entity = Game.Player.JobTransport;
-        else if (Game.Player.Growth?.UniqueId == uniqueId)
-            entity = Game.Player.Growth;
-        else if (Game.Player.Fellow?.UniqueId == uniqueId)
-            entity = Game.Player.Fellow;
+        if (uniqueId == player.UniqueId)
+            entity = player;
+        else if (player.Transport?.UniqueId == uniqueId)
+            entity = player.Transport;
+        else if (player.JobTransport?.UniqueId == uniqueId)
+            entity = player.JobTransport;
+        else if (player.Growth?.UniqueId == uniqueId)
+            entity = player.Growth;
+        else if (player.Fellow?.UniqueId == uniqueId)
+            entity = player.Fellow;
         else if (!TryGetEntity(uniqueId, out entity))
             return false;
 
@@ -104,8 +112,7 @@ public static class SpawnManager
     {
         lock (_lock)
         {
-            entities = _entities.FindAll(p => p is T).Cast<T>();
-
+            entities = _entities.Where(p => p is T).Cast<T>().ToArray();
             return entities != null;
         }
     }
@@ -122,8 +129,10 @@ public static class SpawnManager
     {
         lock (_lock)
         {
-            entities = _entities.FindAll(p => p is T entityT && predicate(entityT)).Cast<T>();
-
+            entities = _entities
+                .Where(p => p is T entityT && predicate(entityT))
+                .Cast<T>()
+                .ToArray();
             return entities != null;
         }
     }
@@ -337,10 +346,27 @@ public static class SpawnManager
     /// </summary>
     public static void Clear()
     {
+        SpawnedEntity[] removed;
+
         lock (_lock)
         {
-            //Entities.Clear();
-            _entities = [];
+            removed = _entities.ToArray();
+            _entities.Clear();
+
+            if (Game.SelectedEntity != null && removed.Contains(Game.SelectedEntity))
+                Game.SelectedEntity = null;
+        }
+
+        foreach (var entity in removed)
+        {
+            try
+            {
+                entity?.Dispose();
+            }
+            catch (Exception error)
+            {
+                Log.Debug("SpawnManager: failed to dispose a cleared entity: " + error.Message);
+            }
         }
     }
 }

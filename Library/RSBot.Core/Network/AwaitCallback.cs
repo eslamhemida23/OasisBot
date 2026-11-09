@@ -45,14 +45,12 @@ public class AwaitCallback
     private const int TIMEOUT_DEFAULT = 5_000;
 
     /// <summary>
-    ///     Step value of timeout[millisecond].
-    /// </summary>
-    private const int TIMEOUT_STEP = 10;
-
-    /// <summary>
     ///     Lock object.
     /// </summary>
     private readonly object _lock = new();
+
+    private readonly TaskCompletionSource<bool> _completion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
     ///     Predicate for received packet
@@ -89,7 +87,7 @@ public class AwaitCallback
     /// <value>
     ///     <c>true</c> if waited; otherwise <c>false</c>.
     /// </value>
-    private bool _waited;
+    private int _waited;
 
     /// <summary>
     ///     Constructor of the <see cref="AwaitCallback" /> class.
@@ -193,6 +191,9 @@ public class AwaitCallback
                         break;
                 }
             }
+
+            if (_invoked)
+                _completion.TrySetResult(_succeeded);
         }
     }
 
@@ -204,36 +205,22 @@ public class AwaitCallback
     /// <returns></returns>
     public void AwaitResponse(int milliseconds = TIMEOUT_DEFAULT)
     {
-        if (_waited)
+        if (Interlocked.Exchange(ref _waited, 1) != 0)
             return;
 
-        _waited = true;
+        if (milliseconds < 10)
+            milliseconds = 10;
 
-        if (milliseconds < TIMEOUT_STEP)
-            milliseconds = TIMEOUT_STEP;
-
+        var completed = _completion.Task.Wait(milliseconds);
         var timedOut = false;
-        Task.Factory.StartNew(() =>
-            {
-                var invoked = false;
-                do
-                {
-                    Thread.Sleep(TIMEOUT_STEP);
-                    milliseconds -= TIMEOUT_STEP;
 
-                    lock (_lock)
-                    {
-                        invoked = _invoked;
-                    }
-                } while (!invoked && milliseconds > 0);
+        lock (_lock)
+        {
+            if (!completed && !_invoked)
+                _timeout = true;
 
-                lock (_lock)
-                {
-                    _timeout = !_invoked;
-                    timedOut = _timeout;
-                }
-            })
-            .Wait();
+            timedOut = _timeout;
+        }
 
         if (timedOut)
             Log.Debug($"Callback timeout, ResponseOpcode: 0x{ResponseOpcode:X}");
@@ -244,37 +231,33 @@ public class AwaitCallback
         CancellationToken cancellationToken = default
     )
     {
-        if (_waited)
+        if (Interlocked.Exchange(ref _waited, 1) != 0)
             return;
 
-        _waited = true;
-
-        if (milliseconds < TIMEOUT_STEP)
-            milliseconds = TIMEOUT_STEP;
-
-        var invoked = false;
+        if (milliseconds < 10)
+            milliseconds = 10;
 
         try
         {
-            do
-            {
-                await Task.Delay(TIMEOUT_STEP, cancellationToken);
-                milliseconds -= TIMEOUT_STEP;
-
-                lock (_lock)
-                {
-                    invoked = _invoked;
-                }
-            } while (!invoked && milliseconds > 0 && !cancellationToken.IsCancellationRequested);
+            await _completion.Task.WaitAsync(TimeSpan.FromMilliseconds(milliseconds), cancellationToken)
+                .ConfigureAwait(false);
         }
-        catch (TaskCanceledException) { }
-
-        var timedOut = false;
-        lock (_lock)
+        catch (TimeoutException)
         {
-            _timeout = !_invoked && !cancellationToken.IsCancellationRequested;
-            timedOut = _timeout;
+            lock (_lock)
+            {
+                if (!_invoked)
+                    _timeout = true;
+            }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cancellation is not a server response and is not reported as a timeout.
+        }
+
+        bool timedOut;
+        lock (_lock)
+            timedOut = _timeout;
 
         if (timedOut)
             Log.Debug($"Callback timeout, ResponseOpcode: 0x{ResponseOpcode:X}");

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Threading;
 using RSBot.Core;
 using RSBot.Core.Components;
 using RSBot.Core.Event;
@@ -10,6 +9,8 @@ namespace RSBot.Training.Bot;
 
 internal class Botbase
 {
+    private long _lastVehicleDismountTick;
+
     /// <summary>
     ///     Initializes a new instance of the <see cref="Botbase" /> class.
     /// </summary>
@@ -53,9 +54,20 @@ internal class Botbase
 
         if (Game.Player.HasActiveVehicle)
         {
-            Game.Player.Vehicle.Dismount();
-            Thread.Sleep(1000);
+            // Do not block the bot worker while waiting for the server to acknowledge
+            // the dismount. Retry at most once per second and resume normal ticks after
+            // the character is actually on foot.
+            var now = Environment.TickCount64;
+            if (now - _lastVehicleDismountTick >= 1000)
+            {
+                _lastVehicleDismountTick = now;
+                Game.Player.Vehicle?.Dismount();
+            }
+
+            return;
         }
+
+        _lastVehicleDismountTick = 0;
 
         //Wait for the pickup manager to finish
         if (PickupManager.RunningPlayerPickup)
