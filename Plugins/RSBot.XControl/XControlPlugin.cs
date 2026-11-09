@@ -169,9 +169,13 @@ namespace RSBot.XControl
 
             // Register service-wide handlers once. They stay alive across Silkroad client
             // restarts because the OasisBot process and plugin manager remain loaded.
+            // Process the chat packet's sender and message before the network event
+            // dispatcher moves on. The actual command body is queued below so it does
+            // not block the packet processor.
             EventManager.SubscribeEvent(
                 "OnChatMessage",
-                new System.Action<byte, string, string>(OnChatMessage)
+                new System.Action<byte, string, string>(OnChatMessage),
+                true
             );
             EventManager.SubscribeEvent("OnTick", new System.Action(OnTick));
             EventManager.SubscribeEvent("OnEnterGame", new System.Action(LoadLeaders), true);
@@ -324,32 +328,52 @@ namespace RSBot.XControl
 
         public static void OnChatMessage(byte type, string message, string sender)
         {
-            if (!Game.Ready || Game.Player == null || string.IsNullOrWhiteSpace(message))
+            if (type != (byte)ChatType.Party || string.IsNullOrWhiteSpace(message))
                 return;
 
-            // Commands are accepted from Party chat only.
-            if (type != (byte)ChatType.Party)
+            var player = Game.Player;
+            if (!Game.Ready || player == null)
+            {
+                Log.Debug("[xControl] Ignored Party command because the character is not ready.");
                 return;
+            }
 
             // The server echoes the leader's own Party message back to the leader.
-            // Allow that local echo so commands such as START also execute on the leader.
+            // Also trust the current in-party leader, even if this character's saved
+            // xControl leader list has not finished loading yet.
+            var localPlayerName = player.Name;
             var isLocalSender = string.Equals(
-                NormalizePlayerName(sender), Game.Player.Name, StringComparison.OrdinalIgnoreCase);
-            if (!isLocalSender && !IsLeader(sender))
+                NormalizePlayerName(sender), localPlayerName, StringComparison.OrdinalIgnoreCase);
+            var isPartyLeader = string.Equals(
+                NormalizePlayerName(sender),
+                NormalizePlayerName(Game.Party?.Leader?.Name),
+                StringComparison.OrdinalIgnoreCase);
+
+            if (!isLocalSender && !isPartyLeader && !IsLeader(sender))
+            {
+                Log.Debug("[xControl] Ignored Party command from untrusted sender: " + sender);
                 return;
-
-            // Use the exact local character name for self-issued commands (including T).
-            if (isLocalSender)
-                sender = Game.Player.Name;
-
-            try
-            {
-                HandleCommand(sender, message.Trim());
             }
-            catch (Exception ex)
+
+            // Capture immutable values now; command execution remains off the packet thread.
+            var commandSender = isLocalSender ? localPlayerName : sender;
+            var commandText = message.Trim();
+            var commandName = commandText.Split(
+                new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries)[0].ToUpperInvariant();
+
+            Log.Debug("[xControl] Accepted Party command '" + commandName + "' from " + commandSender + ".");
+
+            System.Threading.Tasks.Task.Run(() =>
             {
-                Log.Warn("[xControl] Command failed: " + ex.Message);
-            }
+                try
+                {
+                    HandleCommand(commandSender, commandText);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[xControl] Command failed: " + ex.Message);
+                }
+            });
         }
 
         private static void HandleCommand(string sender, string message)
