@@ -29,6 +29,10 @@ internal class PartyBuffingBundle : IBundle
     public PartyBuffingBundle()
     {
         EventManager.SubscribeEvent("OnPartyBuffSettingsChanged", OnPartyBuffSettingsChanged);
+        // OnEnterGame is raised when the character-select request is sent, before the
+        // character packet has populated Game.Player.Skills. Refresh again once the full
+        // character data (including learned skills) has been parsed.
+        EventManager.SubscribeEvent("OnLoadCharacter", Refresh);
         EventManager.SubscribeEvent("OnSkillUpgraded", new Action<SkillInfo, SkillInfo>(OnSkillUpgraded));
         EventManager.SubscribeEvent("OnWithdrawSkill", new Action<SkillInfo, SkillInfo>(OnSkillWithdrawn));
     }

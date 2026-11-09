@@ -137,8 +137,6 @@ namespace RSBot.Party
         public static void SaveBuffingPartyMembers(string members)
         {
             SetAndSave("RSBot.Party.Buffing", members);
-            PlayerConfig.Save();
-
             EventManager.FireEvent("OnPartyBuffSettingsChanged");
         }
 
