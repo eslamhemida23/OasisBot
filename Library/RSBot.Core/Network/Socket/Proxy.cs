@@ -147,6 +147,8 @@ public class Proxy
             Server = null;
         }
 
+        PacketManager.CancelPendingCallbacks();
+
         host?.Dispose();
         client?.Shutdown();
         server?.Disconnect();
@@ -392,6 +394,9 @@ public class Proxy
     /// </summary>
     private void CreateNewServerInstance()
     {
+        // Outstanding callbacks belong to the server connection being replaced.
+        PacketManager.CancelPendingCallbacks();
+
         // We switch between gateway and agent by replacing the Server instance.
         // Important: detach handlers before disconnecting the old server; otherwise its delayed
         // disconnect can be misclassified as the new connection target and trigger relogin.
@@ -624,6 +629,7 @@ public class Proxy
             _probeHost = null;
         }
         host?.Dispose();
+        PacketManager.CancelPendingCallbacks();
         if (!ReferenceEquals(Kernel.Proxy, this))
             return;
         if (writeLog)

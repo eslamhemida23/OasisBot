@@ -111,6 +111,20 @@ public class PacketManager
     }
 
     /// <summary>
+    ///     Cancels and releases callbacks that belong to a disconnected/replaced session.
+    /// </summary>
+    public static void CancelPendingCallbacks()
+    {
+        lock (_lock)
+        {
+            foreach (var callback in _callbacks)
+                callback.Cancel();
+
+            _callbacks.Clear();
+        }
+    }
+
+    /// <summary>
     ///     Calls the callback.
     /// </summary>
     /// <param name="packet">The packet.</param>

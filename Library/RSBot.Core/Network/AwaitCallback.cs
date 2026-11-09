@@ -155,6 +155,19 @@ public class AwaitCallback
     ///     Invokes this <see cref="AwaitCallback" /> instance.
     /// </summary>
     /// <param name="packet">The received <see cref="Packet" />.</param>
+    internal void Cancel()
+    {
+        lock (_lock)
+        {
+            if (_invoked || _timeout)
+                return;
+
+            _invoked = true;
+            _succeeded = false;
+            _completion.TrySetResult(false);
+        }
+    }
+
     internal void Invoke(Packet packet)
     {
         lock (_lock)
