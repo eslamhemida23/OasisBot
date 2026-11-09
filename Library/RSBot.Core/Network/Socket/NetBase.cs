@@ -34,6 +34,8 @@ public class NetBase(bool isClient = false)
     private readonly AutoResetEvent _packetSignal = new(false);
     private volatile bool _enablePacketDispatcher;
     private volatile bool _isClosing;
+    private long _lastDispatcherErrorLogTick;
+    private int _suppressedDispatcherErrors;
 
     /// <summary>
     ///     Gets or sets a value indicating whether this instance is closing.
@@ -173,7 +175,31 @@ public class NetBase(bool isClient = false)
                     _packetSignal.WaitOne(15);
             }
         }
-        catch { }
+        catch (Exception error)
+        {
+            if (!IsClosing)
+                ReportDispatcherError("packet processor thread", error);
+        }
+    }
+
+    private void ReportDispatcherError(string stage, Exception error)
+    {
+        var now = Environment.TickCount64;
+        if (now - _lastDispatcherErrorLogTick >= 5000)
+        {
+            var suppressed = _suppressedDispatcherErrors;
+            _suppressedDispatcherErrors = 0;
+            _lastDispatcherErrorLogTick = now;
+
+            var suffix = suppressed > 0
+                ? $" ({suppressed} similar errors suppressed during the last 5 seconds)"
+                : string.Empty;
+            Log.Error($"Network packet dispatcher failed during {stage}{suffix}: {error}");
+        }
+        else
+        {
+            _suppressedDispatcherErrors++;
+        }
     }
 
     /// <summary>
@@ -205,7 +231,10 @@ public class NetBase(bool isClient = false)
                     {
                         OnPacketReceived(packet);
                     }
-                    catch (Exception) { }
+                    catch (Exception error)
+                    {
+                        ReportDispatcherError("received packet handler", error);
+                    }
                 }
             }
 
@@ -224,8 +253,10 @@ public class NetBase(bool isClient = false)
 
             return processed;
         }
-        catch
+        catch (Exception error)
         {
+            if (!IsClosing)
+                ReportDispatcherError("queued packet processing", error);
             return false;
         }
     }
