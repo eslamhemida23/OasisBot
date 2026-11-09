@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using RSBot.Core;
 using RSBot.Core.Components;
 using RSBot.Core.Event;
@@ -26,6 +28,9 @@ internal class AutoPartyBundle
     ///     Party entiries cache
     /// </summary>
     private List<PartyEntry> _partyEntriesCache;
+
+    private int _partyListRefreshInProgress;
+    private int _partyJoinInProgress;
 
     /// <summary>
     ///     Initialize this instance
@@ -106,28 +111,112 @@ internal class AutoPartyBundle
     /// </summary>
     private void CheckForAutoPartyJoin()
     {
-        if (Game.Party.IsInParty || Config == null)
+        var config = Config;
+        if (Game.Party.IsInParty || config == null)
             return;
 
-        if (!Config.AutoJoinByName && !Config.AutoJoinByTitle)
+        if (!config.AutoJoinByName && !config.AutoJoinByTitle)
             return;
 
-        // Always keep a usable cache. The initial one-minute refresh delay must not
-        // leave this null when AutoJoin is enabled shortly after the bot starts.
-        _partyEntriesCache ??= new List<PartyEntry>();
-
+        // Requesting pages and waiting for their responses must not block the 100ms
+        // game component updater. Keep at most one refresh in flight.
         var elapsed = Kernel.TickCount - _lastPartyListingCacheTick;
+        if (
+            elapsed >= 60000
+            && Interlocked.CompareExchange(ref _partyListRefreshInProgress, 1, 0) == 0
+        )
+        {
+            _lastPartyListingCacheTick = Kernel.TickCount;
+            var sessionProxy = Kernel.Proxy;
+            _partyEntriesCache = new List<PartyEntry>();
 
-        // Refresh every minute. A missing/malformed response must end the page loop,
-        // otherwise the byte page counter can wrap and keep the game tick blocked.
-        if (elapsed >= 60000)
+            _ = Task.Run(() => RefreshPartyListCache(sessionProxy));
+        }
+
+        var entries = Volatile.Read(ref _partyEntriesCache);
+        if (entries == null || entries.Count == 0)
+            return;
+
+        PartyEntry nameMatch = null;
+        PartyEntry titleMatch = null;
+
+        if (config.AutoJoinByName && !string.IsNullOrWhiteSpace(config.AutoJoinByNameContent))
+        {
+            nameMatch = entries.Find(p =>
+                string.Equals(p.Leader, config.AutoJoinByNameContent, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (config.AutoJoinByTitle && !string.IsNullOrWhiteSpace(config.AutoJoinByTitleContent))
+        {
+            titleMatch = entries.Find(p =>
+                !string.IsNullOrWhiteSpace(p.Title)
+                && p.Title.Contains(config.AutoJoinByTitleContent, StringComparison.CurrentCultureIgnoreCase));
+        }
+
+        if (nameMatch == null && titleMatch == null)
+            return;
+
+        // Preserve the previous priority: try the configured leader name first,
+        // then fall back to the title match if the first join request is rejected.
+        if (Interlocked.CompareExchange(ref _partyJoinInProgress, 1, 0) != 0)
+            return;
+
+        var proxy = Kernel.Proxy;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                if (
+                    !Game.Ready
+                    || Game.Party.IsInParty
+                    || proxy == null
+                    || !ReferenceEquals(proxy, Kernel.Proxy)
+                )
+                    return;
+
+                if (nameMatch != null && Container.PartyMatching.Join(nameMatch.Id))
+                    return;
+
+                if (
+                    titleMatch != null
+                    && (nameMatch == null || titleMatch.Id != nameMatch.Id)
+                    && Game.Ready
+                    && !Game.Party.IsInParty
+                    && ReferenceEquals(proxy, Kernel.Proxy)
+                )
+                    Container.PartyMatching.Join(titleMatch.Id);
+            }
+            catch (Exception error)
+            {
+                Log.Warn("[Party] Automatic party join failed: " + error);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _partyJoinInProgress, 0);
+            }
+        });
+    }
+
+    private void RefreshPartyListCache(RSBot.Core.Network.Proxy sessionProxy)
+    {
+        try
         {
             var refreshedEntries = new List<PartyEntry>(64);
             const int maxPagesPerRefresh = 64;
             byte expectedPageCount = 0;
 
+            if (sessionProxy == null || !ReferenceEquals(sessionProxy, Kernel.Proxy) || !Game.Ready)
+                return;
+
             for (var pageIndex = 0; pageIndex < maxPagesPerRefresh; pageIndex++)
             {
+                if (
+                    !Game.Ready
+                    || Game.Party.IsInParty
+                    || !ReferenceEquals(sessionProxy, Kernel.Proxy)
+                )
+                    return;
+
                 var currentPage = Container.PartyMatching.RequestPartyList((byte)pageIndex);
 
                 if (
@@ -166,34 +255,20 @@ internal class AutoPartyBundle
                     Log.Warn($"[Party] Auto-join party list exceeded the {maxPagesPerRefresh}-page safety limit.");
             }
 
-            _partyEntriesCache = refreshedEntries;
-            _lastPartyListingCacheTick = Kernel.TickCount;
+            if (
+                Game.Ready
+                && !Game.Party.IsInParty
+                && ReferenceEquals(sessionProxy, Kernel.Proxy)
+            )
+                Volatile.Write(ref _partyEntriesCache, refreshedEntries);
         }
-
-        if (Config.AutoJoinByName)
+        catch (Exception error)
         {
-            var partyEntry = _partyEntriesCache.Find(p =>
-                string.Equals(p.Leader, Config.AutoJoinByNameContent, StringComparison.OrdinalIgnoreCase));
-            if (partyEntry == null)
-                return;
-
-            if (Container.PartyMatching.Join(partyEntry.Id))
-                return;
+            Log.Warn("[Party] Auto-join party list refresh failed: " + error);
         }
-
-        if (Config.AutoJoinByTitle)
+        finally
         {
-            var title = Config.AutoJoinByTitleContent ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(title))
-                return;
-
-            var partyEntry = _partyEntriesCache.Find(p =>
-                !string.IsNullOrWhiteSpace(p.Title)
-                && p.Title.Contains(title, StringComparison.CurrentCultureIgnoreCase));
-            if (partyEntry == null)
-                return;
-
-            Container.PartyMatching.Join(partyEntry.Id);
+            Interlocked.Exchange(ref _partyListRefreshInProgress, 0);
         }
     }
 
