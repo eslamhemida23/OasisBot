@@ -109,10 +109,14 @@ public class PickupManager
         if (RunningPlayerPickup)
             return;
 
+        var player = Game.Player;
+        if (player == null || !Game.Ready)
+            return;
+
         RunningPlayerPickup = true;
         try
         {
-            var flag = UseAbilityPet && Game.Player.HasActiveAbilityPet;
+            var flag = UseAbilityPet && player.HasActiveAbilityPet;
             if (
                 !SpawnManager.TryGetEntities<SpawnedItem>(
                     i => Condition(i, centerPosition, radius, flag, flag),
@@ -130,13 +134,30 @@ public class PickupManager
                 )
             )
             {
-                if (!RunningPlayerPickup)
+                if (
+                    !RunningPlayerPickup
+                    || !Game.Ready
+                    || !ReferenceEquals(Game.Player, player)
+                )
                     return;
 
-                while (Game.Player.InAction)
+                // Wait for the current action without making Stop/disconnect wait for it.
+                while (
+                    RunningPlayerPickup
+                    && Game.Ready
+                    && ReferenceEquals(Game.Player, player)
+                    && player.InAction
+                )
                     Thread.Sleep(50);
 
-                if (item.Record.IsSpecialtyGoodBox && Game.Player.Job2SpecialtyBag.Full)
+                if (
+                    !RunningPlayerPickup
+                    || !Game.Ready
+                    || !ReferenceEquals(Game.Player, player)
+                )
+                    return;
+
+                if (item.Record.IsSpecialtyGoodBox && player.Job2SpecialtyBag.Full)
                     continue;
 
                 //Make sure the player is at the item's location

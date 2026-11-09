@@ -91,6 +91,18 @@ public class Bot
         catch (Exception ex)
         {
             Log.Fatal(ex);
+            Log.Error("Bot worker stopped unexpectedly. Running bot cleanup before returning to idle state.");
+
+            // An exception in Botbase.Start/Tick must not leave scripts, pickup, shopping
+            // or botbase-specific workers running after the main worker has exited.
+            try
+            {
+                Stop();
+            }
+            catch (Exception cleanupError)
+            {
+                Log.Fatal(new InvalidOperationException("Bot cleanup after a worker failure also failed.", cleanupError));
+            }
         }
         finally
         {
@@ -118,20 +130,31 @@ public class Bot
         if (tokenSource != null && !tokenSource.IsCancellationRequested)
             tokenSource.Cancel();
 
-        EventManager.FireEvent("OnStopBot");
         Log.Notify($"Stopping bot {Botbase.Name}");
 
-        CancelActionOnStop();
-
+        RunCleanupStep("OnStopBot event", () => EventManager.FireEvent("OnStopBot"));
+        RunCleanupStep("action cancellation", CancelActionOnStop);
         Game.SelectedEntity = null;
 
-        ScriptManager.Stop();
-        ShoppingManager.Stop();
-        PickupManager.Stop();
-        Botbase.Stop();
+        RunCleanupStep("script manager", ScriptManager.Stop);
+        RunCleanupStep("shopping manager", ShoppingManager.Stop);
+        RunCleanupStep("pickup manager", PickupManager.Stop);
+        RunCleanupStep("botbase", Botbase.Stop);
 
         Log.Notify($"Stopped bot {Botbase.Name}");
         Log.Status("Bot stopped");
+    }
+
+    private static void RunCleanupStep(string component, Action cleanup)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception error)
+        {
+            Log.Error($"Bot cleanup failed in {component}: {error}");
+        }
     }
 
     private void CancelActionOnStop()
@@ -152,7 +175,15 @@ public class Bot
                 if (Running || !Game.Ready || !ReferenceEquals(Game.Player, player) || !player.InAction)
                     return;
 
-                SkillManager.CancelAction(0);
+                try
+                {
+                    SkillManager.CancelAction(0);
+                }
+                catch (Exception error)
+                {
+                    Log.Error("Could not cancel the active player action while stopping the bot: " + error);
+                    return;
+                }
 
                 if (i == attempts - 1)
                     return;
