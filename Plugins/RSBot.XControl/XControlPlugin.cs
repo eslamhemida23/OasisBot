@@ -28,11 +28,6 @@ namespace RSBot.XControl
         public void Initialize()
         {
             XControlService.Initialize();
-            EventManager.SubscribeEvent(
-                "OnChatMessage",
-                new System.Action<byte, string, string>(XControlService.OnChatMessage));
-            EventManager.SubscribeEvent("OnTick", new System.Action(XControlService.OnTick));
-            EventManager.SubscribeEvent("OnEnterGame", new System.Action(XControlService.LoadLeaders));
             Log.Notify("[xControl] Native C# plugin initialized.");
         }
 
@@ -171,7 +166,35 @@ namespace RSBot.XControl
                 return;
 
             _initialized = true;
+
+            // Register service-wide handlers once. They stay alive across Silkroad client
+            // restarts because the OasisBot process and plugin manager remain loaded.
+            EventManager.SubscribeEvent(
+                "OnChatMessage",
+                new System.Action<byte, string, string>(OnChatMessage)
+            );
+            EventManager.SubscribeEvent("OnTick", new System.Action(OnTick));
+            EventManager.SubscribeEvent("OnEnterGame", new System.Action(LoadLeaders));
+            EventManager.SubscribeEvent("OnLoadCharacter", new System.Action(LoadLeaders));
+            EventManager.SubscribeEvent("OnAgentServerDisconnected", new System.Action(ResetSessionState));
+
             LoadLeaders();
+        }
+
+        private static void ResetSessionState()
+        {
+            _followEnabled = false;
+            _followPlayer = string.Empty;
+            _followExactPosition = false;
+            _hasLastFollowDestination = false;
+            _hasLastFollowPlayerPosition = false;
+            _pendingTeleport = null;
+            _lastCommandSender = null;
+            _attendanceCheckRunning = false;
+            _lastFollowTick = 0;
+            _lastTick = 0;
+            _lastFollowProgressTick = 0;
+            SetStatus("Disconnected. xControl will reload the saved leaders when the character returns.");
         }
 
         public static string[] GetLeaders()

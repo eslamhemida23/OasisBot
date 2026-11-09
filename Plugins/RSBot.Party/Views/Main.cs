@@ -68,6 +68,8 @@ public partial class Main : DoubleBufferedControl
     private void SubscribeEvents()
     {
         EventManager.SubscribeEvent("OnLoadCharacter", OnLoadCharacter);
+        EventManager.SubscribeEvent("OnPartyConfigLoaded", OnPartyConfigLoaded);
+        EventManager.SubscribeEvent("OnPartyBuffSkillsChanged", OnPartyBuffSkillsChanged);
         EventManager.SubscribeEvent("OnCreatePartyEntry", OnCreatePartyEntry);
         EventManager.SubscribeEvent("OnChangePartyEntry", OnChangePartyEntry);
         EventManager.SubscribeEvent("OnDeletePartyEntry", OnDeletePartyEntry);
@@ -273,7 +275,12 @@ public partial class Main : DoubleBufferedControl
     {
         _applySettings = false;
 
+        // A new character session reloads PlayerConfig from disk. The party subscriber
+        // refreshes Container before raising OnPartyConfigLoaded.
         Bundle.Container.Refresh();
+
+        listAutoParty.Items.Clear();
+        listCommandPlayers.Items.Clear();
 
         checkAutoExpAutoShare.Checked = PlayerConfig.Get<bool>("RSBot.Party.EXPAutoShare", true);
         checkAutoItemAutoShare.Checked = PlayerConfig.Get<bool>("RSBot.Party.ItemAutoShare", true);
@@ -304,11 +311,66 @@ public partial class Main : DoubleBufferedControl
         _applySettings = true;
     }
 
+    private void OnPartyConfigLoaded()
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            try { BeginInvoke(new Action(OnPartyConfigLoaded)); } catch { }
+            return;
+        }
+
+        LoadSettings();
+    }
+
+    private void OnPartyBuffSkillsChanged()
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            try { BeginInvoke(new Action(OnPartyBuffSkillsChanged)); } catch { }
+            return;
+        }
+
+        var selectedMember = listViewPartyMembers.SelectedItems.Count > 0
+            ? listViewPartyMembers.SelectedItems[0].Text
+            : null;
+
+        LoadBuffingMembers();
+        RefreshGroupMembers();
+
+        if (string.IsNullOrWhiteSpace(selectedMember))
+            return;
+
+        var selectedItem = listViewPartyMembers.Items
+            .Cast<ListViewItem>()
+            .FirstOrDefault(item => string.Equals(item.Text, selectedMember, StringComparison.OrdinalIgnoreCase));
+
+        if (selectedItem != null)
+        {
+            selectedItem.Selected = true;
+            listViewPartyMembers_SelectedIndexChanged(this, EventArgs.Empty);
+        }
+    }
+
     /// <summary>
     ///     This event will fire as soon as character loaded
     /// </summary>
     private void OnLoadCharacter()
     {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            try { BeginInvoke(new Action(OnLoadCharacter)); } catch { }
+            return;
+        }
+
         listViewGroups.Items.Clear();
 
         var selectedGroup = PartyManager.GetSelectedGroup();

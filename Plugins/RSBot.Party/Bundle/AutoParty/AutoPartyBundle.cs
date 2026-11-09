@@ -65,7 +65,12 @@ internal class AutoPartyBundle
     {
         Config = new AutoPartyConfig
         {
-            PlayerList = PlayerConfig.GetArray<string>("RSBot.Party.AutoPartyList"),
+            PlayerList = PlayerConfig
+                .GetArray<string>("RSBot.Party.AutoPartyList")
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
             InviteAll = PlayerConfig.Get<bool>("RSBot.Party.InviteAll"),
             AcceptAll = PlayerConfig.Get<bool>("RSBot.Party.AcceptAll"),
             AcceptFromList = PlayerConfig.Get<bool>("RSBot.Party.AcceptList"),
@@ -309,7 +314,10 @@ internal class AutoPartyBundle
 
         foreach (var player in players)
         {
-            if (Game.Party.IsInParty && Game.Party.GetMemberByName(player.Name) != null)
+            if (
+                Game.Party.Members?.Any(member =>
+                    string.Equals(member.Name, player.Name, StringComparison.OrdinalIgnoreCase)) == true
+            )
                 continue;
 
             if (Config.InviteAll)
@@ -318,7 +326,11 @@ internal class AutoPartyBundle
                 continue;
             }
 
-            if (Config.PlayerList.Contains(player.Name) && Config.InviteFromList)
+            if (
+                Config.InviteFromList
+                && Config.PlayerList?.Any(name =>
+                    string.Equals(name?.Trim(), player.Name, StringComparison.OrdinalIgnoreCase)) == true
+            )
                 Game.Party.Invite(player.UniqueId);
         }
     }

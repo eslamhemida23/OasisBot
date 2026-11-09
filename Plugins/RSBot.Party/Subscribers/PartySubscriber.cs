@@ -14,7 +14,13 @@ internal class PartySubscriber
     public static void SubscribeEvents()
     {
         EventManager.SubscribeEvent("OnPartyRequest", OnPartyRequest);
-        EventManager.SubscribeEvent("OnLoadCharacter", Container.Refresh);
+        EventManager.SubscribeEvent("OnLoadCharacter", OnLoadCharacter);
+    }
+
+    private static void OnLoadCharacter()
+    {
+        Container.Refresh();
+        EventManager.FireEvent("OnPartyConfigLoaded");
     }
 
     /// <summary>
@@ -39,7 +45,8 @@ internal class PartySubscriber
         //Check if the inviting player matches out party list
         if (
             Container.AutoParty.Config.AcceptFromList
-            && Container.AutoParty.Config.PlayerList.Contains(Game.AcceptanceRequest.Player.Name)
+            && Container.AutoParty.Config.PlayerList?.Any(name =>
+                string.Equals(name?.Trim(), Game.AcceptanceRequest.Player.Name, System.StringComparison.OrdinalIgnoreCase)) == true
         )
             return true;
 
