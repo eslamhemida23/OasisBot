@@ -75,11 +75,43 @@ public class PluginManager
         }
         catch (Exception ex)
         {
-            File.WriteAllText(
-                Path.Combine(Kernel.BasePath, "Data", "Logs", "boot-error.log"),
-                $"The plugin manager encountered a problem: \n{ex.Message} at {ex.StackTrace}"
-            );
+            WriteBootError("The plugin manager encountered a problem.", ex);
             return false;
+        }
+    }
+
+
+    private static void WriteBootError(string message, Exception error)
+    {
+        var logDirectory = Path.Combine(Kernel.BasePath, "Data", "Logs");
+        var logPath = Path.Combine(logDirectory, "boot-error.log");
+        var content = $"{message}{Environment.NewLine}{error}";
+
+        try
+        {
+            // The Logs folder is not guaranteed to be included in a clean BotUpdate package.
+            Directory.CreateDirectory(logDirectory);
+            File.WriteAllText(logPath, content);
+        }
+        catch (Exception logError)
+        {
+            // Do not allow a secondary logging failure to hide the original startup error.
+            try
+            {
+                Log.Error($"{content}{Environment.NewLine}Could not write boot-error.log: {logError}");
+            }
+            catch
+            {
+                try
+                {
+                    File.WriteAllText(Path.Combine(Kernel.BasePath, "boot-error.log"),
+                        $"{content}{Environment.NewLine}Could not write Data/Logs/boot-error.log: {logError}");
+                }
+                catch
+                {
+                    // Startup diagnostics must never throw over the original error.
+                }
+            }
         }
     }
 
