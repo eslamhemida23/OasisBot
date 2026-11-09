@@ -128,7 +128,7 @@ internal class AutoPartyBundle
         {
             _lastPartyListingCacheTick = Kernel.TickCount;
             var sessionProxy = Kernel.Proxy;
-            _partyEntriesCache = new List<PartyEntry>();
+            Volatile.Write(ref _partyEntriesCache, new List<PartyEntry>());
 
             _ = Task.Run(() => RefreshPartyListCache(sessionProxy));
         }
