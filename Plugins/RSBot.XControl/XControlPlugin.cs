@@ -174,9 +174,9 @@ namespace RSBot.XControl
                 new System.Action<byte, string, string>(OnChatMessage)
             );
             EventManager.SubscribeEvent("OnTick", new System.Action(OnTick));
-            EventManager.SubscribeEvent("OnEnterGame", new System.Action(LoadLeaders));
-            EventManager.SubscribeEvent("OnLoadCharacter", new System.Action(LoadLeaders));
-            EventManager.SubscribeEvent("OnAgentServerDisconnected", new System.Action(ResetSessionState));
+            EventManager.SubscribeEvent("OnEnterGame", new System.Action(LoadLeaders), true);
+            EventManager.SubscribeEvent("OnLoadCharacter", new System.Action(LoadLeaders), true);
+            EventManager.SubscribeEvent("OnAgentServerDisconnected", new System.Action(ResetSessionState), true);
 
             LoadLeaders();
         }

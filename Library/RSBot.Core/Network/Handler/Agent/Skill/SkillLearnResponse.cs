@@ -1,4 +1,6 @@
-﻿using RSBot.Core.Event;
+﻿using System;
+using System.Linq;
+using RSBot.Core.Event;
 using RSBot.Core.Objects.Skill;
 
 namespace RSBot.Core.Network.Handler.Agent.Skill;
@@ -34,19 +36,54 @@ internal class SkillLearnResponse : IPacketHandler
         var skillId = packet.ReadUInt();
         var skill = Game.ReferenceManager.GetRefSkill(skillId);
 
+        var knownSkills = Game.Player.Skills.KnownSkills;
         var existingSkill = Game.Player.Skills.GetSkillRecordByName(skill.GetRealName());
+
+        // Skill rank names can change between books/levels. The exact-name lookup alone
+        // then treats a rank-up as a new skill and leaves the previous skill ID behind.
+        if (existingSkill == null && !string.IsNullOrWhiteSpace(skill.Basic_Group))
+        {
+            var sameFamily = knownSkills
+                .Where(known =>
+                    known.Record != null
+                    && !string.IsNullOrWhiteSpace(known.Record.Basic_Group)
+                    && string.Equals(
+                        known.Record.Basic_Group,
+                        skill.Basic_Group,
+                        StringComparison.OrdinalIgnoreCase
+                    ))
+                .ToArray();
+
+            if (sameFamily.Length == 1)
+                existingSkill = sameFamily[0];
+        }
+
         if (existingSkill == null)
         {
             var skillInfo = new SkillInfo(skillId, true);
-
-            Game.Player.Skills.KnownSkills.Add(skillInfo);
+            knownSkills.Add(skillInfo);
             EventManager.FireEvent("OnSkillLearned", skillInfo);
+            return;
         }
-        else
+
+        if (existingSkill.Id == skillId)
         {
-            var oldSkill = new SkillInfo(existingSkill.Id, false);
-            existingSkill.Id = skillId;
-            EventManager.FireEvent("OnSkillUpgraded", oldSkill, existingSkill);
+            existingSkill.Enabled = true;
+            return;
         }
+
+        var oldSkill = existingSkill;
+        var upgradedSkill = new SkillInfo(skillId, existingSkill.Enabled)
+        {
+            Token = existingSkill.Token
+        };
+
+        var existingIndex = knownSkills.IndexOf(existingSkill);
+        if (existingIndex >= 0)
+            knownSkills[existingIndex] = upgradedSkill;
+        else
+            knownSkills.Add(upgradedSkill);
+
+        EventManager.FireEvent("OnSkillUpgraded", oldSkill, upgradedSkill);
     }
 }

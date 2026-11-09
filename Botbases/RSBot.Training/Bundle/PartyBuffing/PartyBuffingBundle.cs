@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using RSBot.Core;
 using RSBot.Core.Components;
 using RSBot.Core.Event;
@@ -16,12 +17,14 @@ internal class PartyBuffingBundle : IBundle
     /// <summary>
     ///     <c>true</c> if refreshing this bundle; otherwise <c>false</c>
     /// </summary>
-    private bool _refreshing;
+    private volatile bool _refreshing;
+    private readonly object _settingsLock = new();
 
     /// <summary>
-    ///     The buffing party members
+    ///     The buffing party members. Start with an empty snapshot so the first tick after
+    ///     a reconnect cannot dereference an uninitialized list.
     /// </summary>
-    private List<BuffingPartyMember> BuffingPartyMembers;
+    private List<BuffingPartyMember> BuffingPartyMembers = new();
 
     /// <summary>
     ///     Initialize the instance of <seealso cref="PartyBuffingBundle" />
@@ -32,9 +35,10 @@ internal class PartyBuffingBundle : IBundle
         // OnEnterGame is raised when the character-select request is sent, before the
         // character packet has populated Game.Player.Skills. Refresh again once the full
         // character data (including learned skills) has been parsed.
-        EventManager.SubscribeEvent("OnLoadCharacter", Refresh);
-        EventManager.SubscribeEvent("OnSkillUpgraded", new Action<SkillInfo, SkillInfo>(OnSkillUpgraded));
-        EventManager.SubscribeEvent("OnWithdrawSkill", new Action<SkillInfo, SkillInfo>(OnSkillWithdrawn));
+        EventManager.SubscribeEvent("OnLoadCharacter", new Action(Refresh), true);
+        // Skill updates are ordered protocol changes; process them in packet order.
+        EventManager.SubscribeEvent("OnSkillUpgraded", new Action<SkillInfo, SkillInfo>(OnSkillUpgraded), true);
+        EventManager.SubscribeEvent("OnWithdrawSkill", new Action<SkillInfo, SkillInfo>(OnSkillWithdrawn), true);
     }
 
     /// <summary>
@@ -42,22 +46,31 @@ internal class PartyBuffingBundle : IBundle
     /// </summary>
     public void Invoke()
     {
-        if (_refreshing)
+        if (_refreshing || Game.Player == null || !Game.Ready)
             return;
 
         if (Game.Player.HasActiveVehicle)
             return;
 
+        var buffingPartyMembers = Volatile.Read(ref BuffingPartyMembers);
+        if (buffingPartyMembers == null || buffingPartyMembers.Count == 0)
+            return;
+
         var selectedGroup = PlayerConfig.Get("RSBot.Party.Buffing.SelectedGroup", "Default");
 
-        SpawnManager.TryGetEntities<SpawnedPlayer>(
-            p => BuffingPartyMembers.Any(s => s.Group == selectedGroup && s.Name == p.Name),
+        if (!SpawnManager.TryGetEntities<SpawnedPlayer>(
+            p => buffingPartyMembers.Any(s =>
+                string.Equals(s.Group, selectedGroup, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(s.Name, p.Name, StringComparison.OrdinalIgnoreCase)),
             out var members
-        );
+        ))
+            return;
 
         foreach (var member in members)
         {
-            var buffingMember = BuffingPartyMembers.Find(p => p.Name == member.Name);
+            var buffingMember = buffingPartyMembers.Find(p =>
+                string.Equals(p.Group, selectedGroup, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(p.Name, member.Name, StringComparison.OrdinalIgnoreCase));
             if (buffingMember == null)
                 continue;
 
@@ -111,25 +124,31 @@ internal class PartyBuffingBundle : IBundle
     /// </summary>
     public void Refresh()
     {
-        _refreshing = true;
+        var migrated = false;
 
-        try
+        lock (_settingsLock)
         {
-            var members = ReadBuffingMembers();
-            var migrated = MigrateLegacySkillIds(members);
-
-            BuffingPartyMembers = members;
-
-            if (migrated)
+            _refreshing = true;
+            try
             {
-                SaveBuffingMembers(members);
-                Log.Notify("[Party] Updated saved party-buff skill references to the currently learned skill IDs.");
-                EventManager.FireEvent("OnPartyBuffSkillsChanged");
+                var members = ReadBuffingMembers();
+                migrated = MigrateLegacySkillIds(members);
+
+                if (migrated)
+                    SaveBuffingMembers(members);
+
+                Volatile.Write(ref BuffingPartyMembers, members);
+            }
+            finally
+            {
+                _refreshing = false;
             }
         }
-        finally
+
+        if (migrated)
         {
-            _refreshing = false;
+            Log.Notify("[Party] Updated saved party-buff skill references to the currently learned skill IDs.");
+            EventManager.FireEvent("OnPartyBuffSkillsChanged");
         }
     }
 
@@ -254,34 +273,39 @@ internal class PartyBuffingBundle : IBundle
         if (!removeWhenUnchanged && (newId == 0 || newId == oldId))
             return;
 
-        var members = ReadBuffingMembers();
         var changed = false;
 
-        foreach (var member in members)
+        lock (_settingsLock)
         {
-            var index = member.Buffs.IndexOf(oldId);
-            if (index < 0)
-                continue;
+            var members = ReadBuffingMembers();
 
-            if (newId == 0 || (removeWhenUnchanged && newId == oldId))
+            foreach (var member in members)
             {
-                member.Buffs.RemoveAt(index);
-            }
-            else
-            {
-                member.Buffs[index] = newId;
+                for (var index = member.Buffs.Count - 1; index >= 0; index--)
+                {
+                    if (member.Buffs[index] != oldId)
+                        continue;
+
+                    if (newId == 0 || (removeWhenUnchanged && newId == oldId))
+                        member.Buffs.RemoveAt(index);
+                    else
+                        member.Buffs[index] = newId;
+
+                    changed = true;
+                }
+
+                member.Buffs = member.Buffs.Distinct().ToList();
             }
 
-            var unique = member.Buffs.Distinct().ToList();
-            member.Buffs = unique;
-            changed = true;
+            if (!changed)
+                return;
+
+            // Reconcile in case a newer rank-up packet has already changed the learned skill.
+            MigrateLegacySkillIds(members);
+            SaveBuffingMembers(members);
+            Volatile.Write(ref BuffingPartyMembers, members);
         }
 
-        if (!changed)
-            return;
-
-        SaveBuffingMembers(members);
-        Refresh();
         EventManager.FireEvent("OnPartyBuffSkillsChanged");
 
         Log.Notify(

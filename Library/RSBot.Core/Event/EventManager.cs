@@ -8,7 +8,7 @@ namespace RSBot.Core.Event;
 
 public class EventManager
 {
-    private static readonly List<(string name, Delegate handler)> _listeners = new();
+    private static readonly List<(string name, Delegate handler, bool synchronous)> _listeners = new();
     private static readonly object _listenersLock = new();
 
     /// <summary>
@@ -18,11 +18,19 @@ public class EventManager
     /// <param name="handler">The handler.</param>
     public static void SubscribeEvent(string name, Delegate handler)
     {
+        SubscribeEvent(name, handler, false);
+    }
+
+    /// <summary>
+    ///     Registers an event handler that can opt into ordered execution on the firing thread.
+    /// </summary>
+    public static void SubscribeEvent(string name, Delegate handler, bool synchronous)
+    {
         if (handler == null)
             return;
 
         lock (_listenersLock)
-            _listeners.Add((name, handler));
+            _listeners.Add((name, handler, synchronous));
     }
 
     /// <summary>
@@ -32,11 +40,19 @@ public class EventManager
     /// <param name="handler">The handler.</param>
     public static void SubscribeEvent(string name, Action handler)
     {
+        SubscribeEvent(name, handler, false);
+    }
+
+    /// <summary>
+    ///     Registers an action handler that can opt into ordered execution on the firing thread.
+    /// </summary>
+    public static void SubscribeEvent(string name, Action handler, bool synchronous)
+    {
         if (handler == null)
             return;
 
         lock (_listenersLock)
-            _listeners.Add((name, handler));
+            _listeners.Add((name, handler, synchronous));
     }
 
     /// <summary>
@@ -46,7 +62,7 @@ public class EventManager
     /// <param name="parameters">The parameters.</param>
     public static void FireEvent(string name, params object[] parameters)
     {
-        Delegate[] targets;
+        (Delegate Handler, bool Synchronous)[] targets;
 
         lock (_listenersLock)
         {
@@ -54,16 +70,16 @@ public class EventManager
                 .Where(listener =>
                     listener.name == name &&
                     listener.handler.Method.GetParameters().Length == parameters.Length)
-                .Select(listener => listener.handler)
+                .Select(listener => (listener.handler, listener.synchronous))
                 .ToArray();
         }
 
         foreach (var target in targets)
         {
-            if (Thread.CurrentThread.Name == "Network.PacketProcessor")
-                _ = Task.Run(() => InvokeTarget(name, target, parameters));
+            if (Thread.CurrentThread.Name == "Network.PacketProcessor" && !target.Synchronous)
+                _ = Task.Run(() => InvokeTarget(name, target.Handler, parameters));
             else
-                InvokeTarget(name, target, parameters);
+                InvokeTarget(name, target.Handler, parameters);
         }
     }
 

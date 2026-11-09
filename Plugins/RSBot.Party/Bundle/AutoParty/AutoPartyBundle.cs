@@ -98,7 +98,7 @@ internal class AutoPartyBundle
 
     public void OnTick()
     {
-        if (!Game.Ready)
+        if (!Game.Ready || Game.Player == null || Game.Party == null)
             return;
 
         var elapsed = Kernel.TickCount - _lastTick;
@@ -282,16 +282,17 @@ internal class AutoPartyBundle
     /// </summary>
     public void CheckForPlayers()
     {
-        if (Config == null)
+        var config = Config;
+        if (config == null || Game.Player == null || Game.Party == null)
             return;
 
         if (
             Game.Party.IsInParty
             && !Game.Party.IsLeader
-            && Config.LeaveIfMasterNot
-            && !string.IsNullOrWhiteSpace(Config.LeaveIfMasterNotName)
+            && config.LeaveIfMasterNot
+            && !string.IsNullOrWhiteSpace(config.LeaveIfMasterNotName)
         )
-            if (Config.LeaveIfMasterNotName != Game.Party.Leader.Name)
+            if (config.LeaveIfMasterNotName != Game.Party.Leader.Name)
                 Game.Party.Leave();
 
         ApplyPartySettingsFromConfig();
@@ -306,7 +307,7 @@ internal class AutoPartyBundle
         if (Game.Party.Members?.Count > limit)
             return;
 
-        if (Config.OnlyAtTrainingPlace && Game.Player.Movement.Source.DistanceTo(Config.CenterPosition) > 50)
+        if (config.OnlyAtTrainingPlace && Game.Player.Movement.Source.DistanceTo(config.CenterPosition) > 50)
             return;
 
         if (!SpawnManager.TryGetEntities<SpawnedPlayer>(out var players))
@@ -320,15 +321,15 @@ internal class AutoPartyBundle
             )
                 continue;
 
-            if (Config.InviteAll)
+            if (config.InviteAll)
             {
                 Game.Party.Invite(player.UniqueId);
                 continue;
             }
 
             if (
-                Config.InviteFromList
-                && Config.PlayerList?.Any(name =>
+                config.InviteFromList
+                && config.PlayerList?.Any(name =>
                     string.Equals(name?.Trim(), player.Name, StringComparison.OrdinalIgnoreCase)) == true
             )
                 Game.Party.Invite(player.UniqueId);
