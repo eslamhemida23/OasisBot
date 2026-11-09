@@ -136,7 +136,7 @@ public class Bot
         RunCleanupStep("action cancellation", CancelActionOnStop);
         Game.SelectedEntity = null;
 
-        RunCleanupStep("script manager", ScriptManager.Stop);
+        RunCleanupStep("script manager", () => ScriptManager.Stop());
         RunCleanupStep("shopping manager", ShoppingManager.Stop);
         RunCleanupStep("pickup manager", PickupManager.Stop);
         RunCleanupStep("botbase", Botbase.Stop);
