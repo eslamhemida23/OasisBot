@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace RSBot.Core;
 
@@ -17,6 +18,7 @@ public class Config
     ///     Gets the path.
     /// </summary>
     private readonly string _path;
+    private readonly object _saveLock = new();
 
     /// <summary>
     ///     Loads the specified file.
@@ -29,16 +31,30 @@ public class Config
         CheckPath();
 
         _config = new ConcurrentDictionary<string, string>();
+        var lineNumber = 0;
         foreach (var line in File.ReadAllLines(_path))
         {
+            lineNumber++;
             if (string.IsNullOrWhiteSpace(line))
                 continue;
 
-            var key = line.Split('{')[0];
-            var value = line.Split('{')[1].Split('}')[0];
+            var openingBrace = line.IndexOf('{');
+            var closingBrace = openingBrace >= 0 ? line.IndexOf('}', openingBrace + 1) : -1;
+            if (openingBrace <= 0 || closingBrace < openingBrace)
+            {
+                Log.Warn($"Ignoring malformed configuration line {lineNumber} in '{_path}'.");
+                continue;
+            }
 
-            if (!_config.ContainsKey(key))
-                _config.TryAdd(key, value);
+            var key = line[..openingBrace];
+            var value = line[(openingBrace + 1)..closingBrace];
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                Log.Warn($"Ignoring configuration line {lineNumber} with an empty key in '{_path}'.");
+                continue;
+            }
+
+            _config.TryAdd(key, value);
         }
     }
 
@@ -70,18 +86,29 @@ public class Config
         if (!_isLoaded)
             return (T)Convert.ChangeType(false, typeof(T));
 
-        if (!_config.ContainsKey(key))
+        if (!_config.TryGetValue(key, out var value))
         {
             Set(key, defaultValue);
-
             return defaultValue;
         }
 
-        var value = _config[key];
         if (string.IsNullOrEmpty(value))
             return defaultValue;
 
-        return (T)Convert.ChangeType(value, typeof(T));
+        try
+        {
+            return (T)Convert.ChangeType(value, typeof(T));
+        }
+        catch (Exception error) when (
+            error is FormatException
+            || error is InvalidCastException
+            || error is OverflowException
+            || error is ArgumentException
+        )
+        {
+            Log.Warn($"Invalid value for configuration key '{key}' in '{_path}'. Using the configured default. {error.Message}");
+            return defaultValue;
+        }
     }
 
     /// <summary>
@@ -141,18 +168,53 @@ public class Config
         if (!_isLoaded || string.IsNullOrWhiteSpace(_path))
             return;
 
-        CheckPath();
-
-        var serializedConfig = new string[_config.Count];
-        var index = 0;
-
-        foreach (var element in _config.OrderBy(c => c.Key))
+        lock (_saveLock)
         {
-            serializedConfig[index] = element.Key + "{" + element.Value + "}";
-            index++;
-        }
+            CheckPath();
 
-        File.WriteAllLines(_path, serializedConfig);
+            // Snapshot the concurrent dictionary once. Never truncate the live settings file:
+            // write to a sibling file, flush it, then replace the original in one rename.
+            var serializedConfig = _config
+                .ToArray()
+                .OrderBy(element => element.Key, StringComparer.Ordinal)
+                .Select(element => element.Key + "{" + element.Value + "}")
+                .ToArray();
+
+            var temporaryPath = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                using (var stream = new FileStream(
+                    temporaryPath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    4096,
+                    FileOptions.WriteThrough
+                ))
+                using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                {
+                    foreach (var line in serializedConfig)
+                        writer.WriteLine(line);
+
+                    writer.Flush();
+                    stream.Flush(true);
+                }
+
+                File.Move(temporaryPath, _path, true);
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(temporaryPath))
+                        File.Delete(temporaryPath);
+                }
+                catch (Exception error)
+                {
+                    Log.Debug($"Could not remove temporary settings file '{temporaryPath}': {error.Message}");
+                }
+            }
+        }
     }
 
     /// <summary>
