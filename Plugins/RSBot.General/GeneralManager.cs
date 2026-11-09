@@ -188,8 +188,37 @@ namespace RSBot.General
 
         private async void OnEnterGame()
         {
-            while (!Game.Ready)
-                await Task.Delay(100);
+            var sessionProxy = Kernel.Proxy;
+            if (sessionProxy == null)
+                return;
+
+            // Game.Ready can lag behind the enter-game event, but the wait must end
+            // if this connection is replaced or the server disconnects.
+            const int readinessTimeoutMs = 60000;
+            const int pollIntervalMs = 100;
+            var attempts = readinessTimeoutMs / pollIntervalMs;
+
+            for (var attempt = 0; attempt < attempts && !Game.Ready; attempt++)
+            {
+                if (
+                    !ReferenceEquals(Kernel.Proxy, sessionProxy)
+                    || !sessionProxy.IsConnectedToAgentserver
+                )
+                    return;
+
+                await Task.Delay(pollIntervalMs);
+            }
+
+            if (
+                !Game.Ready
+                || Game.Player == null
+                || !ReferenceEquals(Kernel.Proxy, sessionProxy)
+                || !sessionProxy.IsConnectedToAgentserver
+            )
+            {
+                Log.Warn("[General] Enter-game initialization did not become ready within 60 seconds; ignoring the stale event.");
+                return;
+            }
 
             var startBot = GlobalConfig.Get<bool>("RSBot.General.StartBot");
             var useReturnScroll = GlobalConfig.Get<bool>("RSBot.General.UseReturnScroll");
@@ -208,13 +237,17 @@ namespace RSBot.General
             if (Game.Clientless)
                 return;
 
+            var proxy = Kernel.Proxy;
+            if (proxy == null)
+                return;
+
             if (!GlobalConfig.Get<bool>("RSBot.General.StayConnected"))
             {
-                Kernel.Proxy.Shutdown();
+                proxy.Shutdown();
             }
             else
             {
-                if (!Kernel.Proxy.IsConnectedToAgentserver)
+                if (!proxy.IsConnectedToAgentserver)
                     return;
 
                 if (!ClientlessManager.TryGoClientless())
