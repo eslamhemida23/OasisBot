@@ -16,6 +16,7 @@ public static class Kernel
     ///     The updater token source
     /// </summary>
     private static CancellationTokenSource _updaterTokenSource;
+    private static Task _updaterTask;
 
     /// <summary>
     ///     Gets or sets the botbase manager.
@@ -113,38 +114,55 @@ public static class Kernel
 
         _updaterTokenSource = new CancellationTokenSource();
 
-        Task.Factory.StartNew(
-            ComponentUpdaterAsync,
-            _updaterTokenSource.Token,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Current
-        );
+        // ComponentUpdaterAsync is asynchronous and yields every 10ms; a dedicated
+        // LongRunning thread only executes its synchronous prefix and is then wasted.
+        _updaterTask = Task.Run(() => ComponentUpdaterAsync(_updaterTokenSource.Token));
     }
 
-    private static async Task ComponentUpdaterAsync()
+    private static async Task ComponentUpdaterAsync(CancellationToken cancellationToken)
     {
-        var lastTick = TickCount;
-        var lastClockTick = TickCount;
+        var lastTick = Environment.TickCount64;
+        var lastClockTick = lastTick;
+        var lastErrorLogTick = long.MinValue;
 
-        while (!_updaterTokenSource.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            await Task.Delay(10);
-
-            if (TickCount - lastClockTick >= 1000)
+            try
             {
-                lastClockTick = TickCount;
-                EventManager.FireEvent("OnClock");
+                await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
             }
 
-            if (!Game.Ready)
+            var now = Environment.TickCount64;
+
+            if (now - lastClockTick >= 1000)
             {
-                lastTick = TickCount;
+                lastClockTick = now;
+                try
+                {
+                    EventManager.FireEvent("OnClock");
+                }
+                catch (Exception error)
+                {
+                    Log.Error("Component updater clock event failed: " + error);
+                }
+            }
+
+            // Game.Ready can change between a disconnect and the next component tick.
+            // Do not dereference a player that has already been cleared by the disconnect path.
+            if (!Game.Ready || Game.Player == null)
+            {
+                lastTick = now;
                 continue;
             }
 
             try
             {
-                var elapsed = TickCount - lastTick;
+                var elapsedMilliseconds = Math.Max(0, now - lastTick);
+                var elapsed = (int)Math.Min(elapsedMilliseconds, int.MaxValue);
 
                 Game.Player.Update(elapsed);
                 Game.Player.Transport?.Update(elapsed);
@@ -157,11 +175,30 @@ public static class Kernel
 
                 EventManager.FireEvent("OnTick");
 
-                lastTick = TickCount;
+                lastTick = Environment.TickCount64;
             }
-            catch (Exception e)
+            catch (Exception error)
             {
-                Log.Fatal(e);
+                // Reset the delta so one bad tick cannot produce an enormous movement/update
+                // interval on the next iteration. Back off and rate-limit the log to avoid
+                // a persistent fault generating 100 exceptions and log writes per second.
+                lastTick = Environment.TickCount64;
+
+                var errorTick = lastTick;
+                if (errorTick - lastErrorLogTick >= 5000)
+                {
+                    Log.Fatal(error);
+                    lastErrorLogTick = errorTick;
+                }
+
+                try
+                {
+                    await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
             }
         }
     }
