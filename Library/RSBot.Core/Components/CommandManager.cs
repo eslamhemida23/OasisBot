@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using RSBot.Core.Components.Command;
 
 namespace RSBot.Core.Components;
@@ -19,8 +20,8 @@ public static class CommandManager
         var type = typeof(ICommandExecutor);
         var types = AppDomain
             .CurrentDomain.GetAssemblies()
-            .SelectMany(s => s.GetTypes())
-            .Where(p => type.IsAssignableFrom(p) && !p.IsInterface)
+            .SelectMany(GetLoadableTypes)
+            .Where(p => p != null && type.IsAssignableFrom(p) && !p.IsInterface)
             .ToArray();
 
         foreach (var handler in types)
@@ -31,6 +32,28 @@ public static class CommandManager
         }
 
         Log.Debug($"[CommandManager] Found and registered {_commands.Count} commands");
+    }
+
+    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException error)
+        {
+            // One optional plugin dependency must not prevent unrelated command types
+            // from being discovered and registered.
+            foreach (var loaderError in error.LoaderExceptions.Where(exception => exception != null))
+                Log.Warn($"[CommandManager] Could not load a type from [{assembly.FullName}]: {loaderError.Message}");
+
+            return error.Types.Where(type => type != null);
+        }
+        catch (Exception error)
+        {
+            Log.Warn($"[CommandManager] Could not inspect assembly [{assembly.FullName}]: {error.Message}");
+            return Array.Empty<Type>();
+        }
     }
 
     /// <summary>
