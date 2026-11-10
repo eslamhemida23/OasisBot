@@ -32,17 +32,45 @@ jobs:
       - name: Build OasisBot with manager shutdown support
         run: msbuild Application/OasisBot/OasisBot.csproj /restore /m /p:Configuration=Release /p:Platform=x86
 
-      - name: Build General plugin
-        run: msbuild Plugins/RSBot.General/RSBot.General.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+      - name: Build all plugins
+        shell: pwsh
+        run: |
+          $projects = @(Get-ChildItem "Plugins" -Directory | ForEach-Object {
+            Get-ChildItem $_.FullName -Filter "*.csproj" -File
+          } | Sort-Object FullName)
 
-      - name: Build Party plugin
-        run: msbuild Plugins/RSBot.Party/RSBot.Party.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+          if ($projects.Count -eq 0) {
+            throw "No plugin projects were found."
+          }
 
-      - name: Build Training botbase
-        run: msbuild Botbases/RSBot.Training/RSBot.Training.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+          Write-Host "Building all $($projects.Count) plugin projects."
+          foreach ($project in $projects) {
+            Write-Host "Building plugin project: $($project.FullName)"
+            & msbuild $project.FullName /restore /m /p:Configuration=Release /p:Platform=x86
+            if ($LASTEXITCODE -ne 0) {
+              throw "Plugin build failed: $($project.FullName)"
+            }
+          }
 
-      - name: Build xControl party command plugin
-        run: msbuild Plugins/RSBot.XControl/RSBot.XControl.csproj /restore /m /p:Configuration=Release /p:Platform=x86
+      - name: Build all botbases
+        shell: pwsh
+        run: |
+          $projects = @(Get-ChildItem "Botbases" -Directory | ForEach-Object {
+            Get-ChildItem $_.FullName -Filter "*.csproj" -File
+          } | Sort-Object FullName)
+
+          if ($projects.Count -eq 0) {
+            throw "No botbase projects were found."
+          }
+
+          Write-Host "Building all $($projects.Count) botbase projects."
+          foreach ($project in $projects) {
+            Write-Host "Building botbase project: $($project.FullName)"
+            & msbuild $project.FullName /restore /m /p:Configuration=Release /p:Platform=x86
+            if ($LASTEXITCODE -ne 0) {
+              throw "Botbase build failed: $($project.FullName)"
+            }
+          }
 
       - name: Verify and package outputs
         shell: pwsh
@@ -89,30 +117,46 @@ jobs:
             }
           }
 
-          # Preserve all existing user data, but stage each runtime component changed by
-          # this branch so its new DLL reaches the correct OasisBot loader directory.
+          # Include the complete plugin and botbase sets. These are the assemblies
+          # that populate the application's tabs and the botbase selector.
           New-Item -ItemType Directory -Force -Path "$stage/BotUpdate/Data/Plugins", "$stage/BotUpdate/Data/Bots" | Out-Null
 
-          $updatedPlugins = @(
-            "RSBot.XControl.dll",
-            "RSBot.General.dll",
-            "RSBot.Party.dll"
-          )
-          foreach ($plugin in $updatedPlugins) {
-            $source = "Build/Data/Plugins/$plugin"
-            $destination = "$stage/BotUpdate/Data/Plugins/$plugin"
-            if (!(Test-Path $source)) {
-              throw "Missing updated plugin runtime file: $source"
-            }
-            Copy-Item $source $destination -Force
-            if (!(Test-Path $destination)) {
-              throw "Bot update bundle is missing $destination."
-            }
+          $pluginProjects = @(Get-ChildItem "Plugins" -Directory | ForEach-Object {
+            Get-ChildItem $_.FullName -Filter "*.csproj" -File
+          })
+          $botbaseProjects = @(Get-ChildItem "Botbases" -Directory | ForEach-Object {
+            Get-ChildItem $_.FullName -Filter "*.csproj" -File
+          })
+          $pluginAssemblies = @(Get-ChildItem "Build/Data/Plugins" -Filter "*.dll" -File)
+          $botbaseAssemblies = @(Get-ChildItem "Build/Data/Bots" -Filter "*.dll" -File)
+
+          if ($pluginAssemblies.Count -lt $pluginProjects.Count) {
+            throw "Only $($pluginAssemblies.Count) plugin DLLs were built for $($pluginProjects.Count) plugin projects."
+          }
+          if ($botbaseAssemblies.Count -lt $botbaseProjects.Count) {
+            throw "Only $($botbaseAssemblies.Count) botbase DLLs were built for $($botbaseProjects.Count) botbase projects."
           }
 
-          Copy-Item "Build/Data/Bots/RSBot.Training.dll" "$stage/BotUpdate/Data/Bots/RSBot.Training.dll" -Force
+          Write-Host "Packaging $($pluginAssemblies.Count) plugin DLLs from $($pluginProjects.Count) projects."
+          Write-Host "Packaging $($botbaseAssemblies.Count) botbase DLLs from $($botbaseProjects.Count) projects."
+
+          Copy-Item "Build/Data/Plugins/*" "$stage/BotUpdate/Data/Plugins/" -Recurse -Force
+          Copy-Item "Build/Data/Bots/*" "$stage/BotUpdate/Data/Bots/" -Recurse -Force
+
+          # Training is a botbase, not a plugin. Do not ship a stale duplicate
+          # under Data/Plugins where it could be loaded before the botbase copy.
+          if (Test-Path "$stage/BotUpdate/Data/Plugins/RSBot.Training.dll") {
+            Remove-Item "$stage/BotUpdate/Data/Plugins/RSBot.Training.dll" -Force
+          }
+
           if (!(Test-Path "$stage/BotUpdate/Data/Bots/RSBot.Training.dll")) {
-            throw "Bot update bundle is missing the updated RSBot.Training.dll."
+            throw "Bot update bundle is missing RSBot.Training.dll."
+          }
+          foreach ($project in $botbaseProjects) {
+            $expected = Join-Path "$stage/BotUpdate/Data/Bots" ($project.BaseName + ".dll")
+            if (!(Test-Path $expected)) {
+              throw "Bot update bundle is missing botbase assembly for $($project.BaseName): $expected"
+            }
           }
 
           # RSBot.General is dynamically loaded from Data/Plugins and references
