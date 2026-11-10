@@ -115,6 +115,43 @@ jobs:
             throw "Bot update bundle is missing the updated RSBot.Training.dll."
           }
 
+          # RSBot.General is dynamically loaded from Data/Plugins and references
+          # WebView2 with PrivateAssets=all, so these runtime dependencies do not
+          # flow into the main OasisBot application output automatically.
+          $webView2Assemblies = @(
+            "Microsoft.Web.WebView2.Core.dll",
+            "Microsoft.Web.WebView2.WinForms.dll"
+          )
+          foreach ($assembly in $webView2Assemblies) {
+            $source = Get-ChildItem "Build/Data/Plugins" -Filter $assembly -Recurse -File |
+              Select-Object -First 1
+            if ($null -eq $source) {
+              throw "Missing General plugin runtime dependency: $assembly"
+            }
+            Copy-Item $source.FullName "$stage/BotUpdate/$assembly" -Force
+            if (!(Test-Path "$stage/BotUpdate/$assembly")) {
+              throw "Bot update bundle is missing WebView2 dependency: $assembly"
+            }
+          }
+
+          $webView2Loader = Get-ChildItem "Build/Data/Plugins" -Filter "WebView2Loader.dll" -Recurse -File |
+            Where-Object { $_.FullName -match "(?i)win-x86|\\x86\\" } |
+            Select-Object -First 1
+          if ($null -eq $webView2Loader) {
+            $webView2Loader = Get-ChildItem "Build/Data/Plugins" -Filter "WebView2Loader.dll" -Recurse -File |
+              Select-Object -First 1
+          }
+          if ($null -eq $webView2Loader) {
+            throw "Missing WebView2 native loader (WebView2Loader.dll) for the x86 bot."
+          }
+
+          # Keep a copy at the application base for the P/Invoke loader, and retain
+          # the NuGet runtime layout in case the native resolver uses it.
+          Copy-Item $webView2Loader.FullName "$stage/BotUpdate/WebView2Loader.dll" -Force
+          $nativeRelativePath = "runtimes/win-x86/native/WebView2Loader.dll"
+          New-Item -ItemType Directory -Force -Path (Join-Path "$stage/BotUpdate" (Split-Path $nativeRelativePath -Parent)) | Out-Null
+          Copy-Item $webView2Loader.FullName (Join-Path "$stage/BotUpdate" $nativeRelativePath) -Force
+
           Compress-Archive -Path "$stage/*" -DestinationPath "OasisBot-Manager-Bundle.zip" -Force
           $filesToReport = @($managerExe) + $requiredBotFiles + @("OasisBot-Manager-Bundle.zip")
           Get-Item $filesToReport |
