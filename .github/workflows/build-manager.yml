@@ -130,6 +130,19 @@ jobs:
           $pluginAssemblies = @(Get-ChildItem "Build/Data/Plugins" -Filter "*.dll" -File)
           $botbaseAssemblies = @(Get-ChildItem "Build/Data/Bots" -Filter "*.dll" -File)
 
+          foreach ($project in $pluginProjects) {
+            $expected = Join-Path "Build/Data/Plugins" ($project.BaseName + ".dll")
+            if (!(Test-Path $expected)) {
+              throw "Plugin project $($project.BaseName) did not produce its expected DLL: $expected"
+            }
+          }
+          foreach ($project in $botbaseProjects) {
+            $expected = Join-Path "Build/Data/Bots" ($project.BaseName + ".dll")
+            if (!(Test-Path $expected)) {
+              throw "Botbase project $($project.BaseName) did not produce its expected DLL: $expected"
+            }
+          }
+
           if ($pluginAssemblies.Count -lt $pluginProjects.Count) {
             throw "Only $($pluginAssemblies.Count) plugin DLLs were built for $($pluginProjects.Count) plugin projects."
           }
