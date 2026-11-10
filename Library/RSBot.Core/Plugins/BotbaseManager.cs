@@ -119,10 +119,22 @@ public class BotbaseManager
             var loadedName = alreadyLoaded.GetName();
             var loadedLocation = GetAssemblyLocation(alreadyLoaded);
 
+            // Botbase output folders can contain shared dependencies (for example SDUI.dll).
+            // The main application has already loaded those from its root directory. They are
+            // not botbases, so do not try to load the second copy from Data/Bots.
+            if (!ContainsBotbaseTypes(alreadyLoaded))
+            {
+                Log.Debug(
+                    $"Skipping already loaded dependency [{requestedSimpleName}] in botbase folder: [{file}]. " +
+                    $"The application already loaded it from [{loadedLocation}]."
+                );
+                return null;
+            }
+
             if (!string.Equals(loadedName.FullName, requestedName.FullName, StringComparison.OrdinalIgnoreCase))
             {
                 throw new FileLoadException(
-                    $"Cannot load botbase '{file}'. An assembly with the same name is already loaded " +
+                    $"Cannot load botbase '{file}'. A botbase assembly with the same name is already loaded " +
                     $"with a different identity: '{loadedName.FullName}' from '{loadedLocation}'. " +
                     $"Requested identity: '{requestedName.FullName}'."
                 );
@@ -131,7 +143,7 @@ public class BotbaseManager
             if (!IsSameAssemblyFile(file, alreadyLoaded))
             {
                 throw new FileLoadException(
-                    $"Cannot load botbase '{file}'. An assembly with the same identity is already loaded " +
+                    $"Cannot load botbase '{file}'. A botbase assembly with the same identity is already loaded " +
                     $"from a different file: '{loadedLocation}'. The files have different contents."
                 );
             }
@@ -160,6 +172,21 @@ public class BotbaseManager
             }
 
             throw new FileLoadException($"Failed to load botbase assembly '{file}'.", error);
+        }
+    }
+
+    private static bool ContainsBotbaseTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes().Any(type =>
+                type.IsPublic &&
+                !type.IsAbstract &&
+                (typeof(IBotbase).IsAssignableFrom(type) || typeof(IBotbaseView).IsAssignableFrom(type)));
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -217,6 +244,8 @@ public class BotbaseManager
         var views = new Dictionary<string, IBotbaseView>();
 
         var assembly = LoadBotbaseAssembly(file);
+        if (assembly == null)
+            return (bots, views);
 
         try
         {
