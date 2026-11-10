@@ -17,12 +17,12 @@ internal class AutoPartyBundle
     /// <summary>
     ///     Last tick for checking party members
     /// </summary>
-    private int _lastPartyListingCacheTick;
+    private long _lastPartyListingCacheTick;
 
     /// <summary>
-    ///     Last tick for checking party members
+    ///     Last monotonic timestamp for checking party members.
     /// </summary>
-    private int _lastTick;
+    private long _lastTick;
 
     /// <summary>
     ///     Party entiries cache
@@ -93,6 +93,19 @@ internal class AutoPartyBundle
             AlwaysFollowThePartyMaster = PlayerConfig.Get("RSBot.Party.AlwaysFollowPartyMaster", false),
         };
 
+        // Force a fresh scan after every character/profile load. TickCount64 avoids
+        // the signed 32-bit Environment.TickCount wrap that could suppress scans
+        // for a long time on machines with long uptimes.
+        _lastTick = 0;
+        _lastPartyListingCacheTick = 0;
+        Volatile.Write(ref _partyEntriesCache, null);
+
+        Log.Notify(
+            $"[Party] AutoParty settings loaded. InviteAll={Config.InviteAll}, " +
+            $"InviteFromList={Config.InviteFromList}, ListedPlayers={Config.PlayerList.Length}, " +
+            $"OnlyAtTrainingPlace={Config.OnlyAtTrainingPlace}."
+        );
+
         ApplyPartySettingsFromConfig();
     }
 
@@ -101,13 +114,12 @@ internal class AutoPartyBundle
         if (!Game.Ready || Game.Player == null || Game.Party == null)
             return;
 
-        var elapsed = Kernel.TickCount - _lastTick;
-        if (elapsed > 5000)
+        var now = Environment.TickCount64;
+        if (now - _lastTick >= 5000)
         {
+            _lastTick = now;
             CheckForAutoPartyJoin();
             CheckForPlayers();
-
-            _lastTick = Kernel.TickCount;
         }
     }
 
@@ -125,13 +137,14 @@ internal class AutoPartyBundle
 
         // Requesting pages and waiting for their responses must not block the 100ms
         // game component updater. Keep at most one refresh in flight.
-        var elapsed = Kernel.TickCount - _lastPartyListingCacheTick;
+        var now = Environment.TickCount64;
+        var elapsed = now - _lastPartyListingCacheTick;
         if (
             elapsed >= 60000
             && Interlocked.CompareExchange(ref _partyListRefreshInProgress, 1, 0) == 0
         )
         {
-            _lastPartyListingCacheTick = Kernel.TickCount;
+            _lastPartyListingCacheTick = now;
             var sessionProxy = Kernel.Proxy;
             Volatile.Write(ref _partyEntriesCache, new List<PartyEntry>());
 
@@ -298,7 +311,23 @@ internal class AutoPartyBundle
         ApplyPartySettingsFromConfig();
 
         if (!Game.Party.CanInvite || Game.Party.Settings == null)
+        {
+            Log.Debug(
+                $"[Party] Auto-invite scan skipped: CanInvite={Game.Party.CanInvite}, " +
+                $"SettingsLoaded={Game.Party.Settings != null}, InParty={Game.Party.IsInParty}, " +
+                $"IsLeader={Game.Party.IsLeader}."
+            );
             return;
+        }
+
+        if (!config.InviteAll && !config.InviteFromList)
+            return;
+
+        if (config.InviteFromList && (config.PlayerList == null || config.PlayerList.Length == 0))
+        {
+            Log.Warn("[Party] Invite-from-list is enabled, but the saved auto-party player list is empty.");
+            return;
+        }
 
         var limit = 8;
         if (!Game.Party.Settings.ExperienceAutoShare && !Game.Party.Settings.ItemAutoShare)
@@ -324,6 +353,7 @@ internal class AutoPartyBundle
             if (config.InviteAll)
             {
                 Game.Party.Invite(player.UniqueId);
+                Log.Notify("[Party] Sent automatic party invite to " + player.Name + ".");
                 continue;
             }
 
@@ -332,7 +362,10 @@ internal class AutoPartyBundle
                 && config.PlayerList?.Any(name =>
                     string.Equals(name?.Trim(), player.Name, StringComparison.OrdinalIgnoreCase)) == true
             )
+            {
                 Game.Party.Invite(player.UniqueId);
+                Log.Notify("[Party] Sent invite to saved party-list member " + player.Name + ".");
+            }
         }
     }
 }
