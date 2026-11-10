@@ -41,6 +41,8 @@ public class PluginManager
         try
         {
             var files = Directory.GetFiles(InitialDirectory, "*.dll");
+            Log.Notify($"[PluginManager] Scanning {files.Length} plugin DLLs in [{InitialDirectory}].");
+
             foreach (var file in files)
             {
                 // Older updates may have left a botbase DLL in Data/Plugins.
@@ -81,6 +83,10 @@ public class PluginManager
                 .OrderBy(entry => entry.Value.Index)
                 .ToDictionary(x => x.Key, x => x.Value);
 
+            Log.Notify(
+                $"[PluginManager] Loaded {Extensions.Count} plugin services and " +
+                $"{ExtensionsViews.Count} plugin views from {files.Length} DLL files."
+            );
             EventManager.FireEvent("OnLoadPlugins");
 
             return true;
