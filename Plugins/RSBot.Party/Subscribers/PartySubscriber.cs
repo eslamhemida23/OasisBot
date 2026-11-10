@@ -20,9 +20,14 @@ internal class PartySubscriber
 
     private static void OnEnterGame()
     {
+        // A character/client restart can leave the previous session's Party members
+        // cached in Game.Party. Clear that snapshot before loading this character's
+        // settings, otherwise the auto-invite loop may incorrectly skip the old names.
+        Game.Party?.Clear();
+
         // PlayerConfig has already been switched to the selected character by
-        // CharacterSelectionJoinRequest. Initialize the OnTick-backed party service
-        // now so reconnects do not miss the first ticks after the character enters.
+        // CharacterSelectionJoinRequest. Reset and initialize the OnTick-backed party
+        // service now so the first invite scan uses this character's own saved profile.
         Container.Refresh();
     }
 
