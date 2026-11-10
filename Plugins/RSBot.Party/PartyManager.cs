@@ -105,7 +105,7 @@ namespace RSBot.Party
 
             matching.Id = 0;
 
-            if (Game.Ready && matching.Config?.AutoReform == true)
+            if (Game.Ready && matching.Config.AutoReform)
                 matching.Create();
         }
 
