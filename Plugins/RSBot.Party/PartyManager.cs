@@ -22,7 +22,7 @@ namespace RSBot.Party
             EventManager.SubscribeEvent("OnPartyMemberLeave", new Action<PartyMember>(OnPartyMemberLeave));
             EventManager.SubscribeEvent("OnPartyMemberBanned", new Action<PartyMember>(OnPartyMemberBanned));
             EventManager.SubscribeEvent("OnPartyDismiss", OnPartyDismiss);
-            EventManager.SubscribeEvent("OnAgentServerDisconnected", OnPartyDismiss);
+            EventManager.SubscribeEvent("OnAgentServerDisconnected", OnPartyDismiss, true);
             EventManager.SubscribeEvent("OnPartyLeaderChange", OnPartyData);
             EventManager.SubscribeEvent("OnPartyData", OnPartyData);
         }
@@ -84,19 +84,29 @@ namespace RSBot.Party
 
         public static void OnPartyDismiss()
         {
-            if (!Game.Ready)
+            // Clear the in-memory party snapshot even when the agent connection is
+            // already marked not-ready. Keeping old Members/Leader data across a client
+            // restart makes AutoParty think listed players are already in the party.
+            Game.Party?.Clear();
+
+            var matching = Bundle.Container.PartyMatching;
+            if (!Game.Ready || matching == null)
                 return;
 
-            Bundle.Container.PartyMatching.HasMatchingEntry = false;
+            matching.HasMatchingEntry = false;
             OnDeletePartyEntry();
         }
 
         private static void OnDeletePartyEntry()
         {
-            Bundle.Container.PartyMatching.Id = 0;
+            var matching = Bundle.Container.PartyMatching;
+            if (matching == null)
+                return;
 
-            if (Game.Ready && Bundle.Container.PartyMatching.Config.AutoReform)
-                Bundle.Container.PartyMatching.Create();
+            matching.Id = 0;
+
+            if (Game.Ready && matching.Config?.AutoReform == true)
+                matching.Create();
         }
 
         public void OnPartyData()
