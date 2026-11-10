@@ -136,6 +136,9 @@ namespace RSBot.XControl
 
         private static bool _initialized;
         private static bool _followEnabled;
+        private static bool _followPausedForTeleport;
+        private static bool _resumeFollowAfterReconnect;
+        private static int _followCommandVersion;
         private static string _followPlayer = string.Empty;
         private static double _followDistance = 10;
         private static int _lastFollowTick;
@@ -179,7 +182,7 @@ namespace RSBot.XControl
             );
             EventManager.SubscribeEvent("OnTick", new System.Action(OnTick));
             EventManager.SubscribeEvent("OnEnterGame", new System.Action(LoadLeaders), true);
-            EventManager.SubscribeEvent("OnLoadCharacter", new System.Action(LoadLeaders), true);
+            EventManager.SubscribeEvent("OnLoadCharacter", new System.Action(OnCharacterLoaded), true);
             EventManager.SubscribeEvent("OnAgentServerDisconnected", new System.Action(ResetSessionState), true);
 
             LoadLeaders();
@@ -187,17 +190,31 @@ namespace RSBot.XControl
 
         private static void ResetSessionState()
         {
-            _followEnabled = false;
-            _followPlayer = string.Empty;
-            _followExactPosition = false;
-            _hasLastFollowDestination = false;
-            _hasLastFollowPlayerPosition = false;
+            // An agent-server transition can be part of a synchronized teleport on some
+            // servers. Preserve an active trace only while XControl itself has paused it
+            // for that teleport; ordinary disconnects still clear the follow session.
+            _resumeFollowAfterReconnect = _followEnabled && _followPausedForTeleport;
+            if (_resumeFollowAfterReconnect)
+            {
+                _hasLastFollowDestination = false;
+                _hasLastFollowPlayerPosition = false;
+                _lastFollowTick = 0;
+                _lastFollowProgressTick = 0;
+                Log.Notify("[xControl] Agent connection changed during teleport; trace will resume after re-entry.");
+            }
+            else
+            {
+                _followEnabled = false;
+                _followPlayer = string.Empty;
+                _followExactPosition = false;
+                _followPausedForTeleport = false;
+                System.Threading.Interlocked.Increment(ref _followCommandVersion);
+            }
+
             _pendingTeleport = null;
             _lastCommandSender = null;
             _attendanceCheckRunning = false;
-            _lastFollowTick = 0;
             _lastTick = 0;
-            _lastFollowProgressTick = 0;
             SetStatus("Disconnected. xControl will reload the saved leaders when the character returns.");
         }
 
@@ -240,6 +257,22 @@ namespace RSBot.XControl
 
             SetStatus("Leader saved: " + name);
             return true;
+        }
+
+        private static void OnCharacterLoaded()
+        {
+            LoadLeaders();
+
+            if (!_resumeFollowAfterReconnect || !_followEnabled)
+                return;
+
+            _resumeFollowAfterReconnect = false;
+            _followPausedForTeleport = false;
+            _lastFollowTick = 0;
+            _hasLastFollowDestination = false;
+            _hasLastFollowPlayerPosition = false;
+            _lastFollowProgressTick = 0;
+            Log.Notify("[xControl] Trace resumed after reconnect: " + _followPlayer);
         }
 
         public static void LoadLeaders()
@@ -679,6 +712,9 @@ namespace RSBot.XControl
                 return;
             }
 
+            System.Threading.Interlocked.Increment(ref _followCommandVersion);
+            _resumeFollowAfterReconnect = false;
+            _followPausedForTeleport = false;
             _followPlayer = partyTarget?.Name ?? playerName;
             _followDistance = 0;
             _followExactPosition = true;
@@ -707,6 +743,9 @@ namespace RSBot.XControl
             if (string.IsNullOrWhiteSpace(target))
                 return;
 
+            System.Threading.Interlocked.Increment(ref _followCommandVersion);
+            _resumeFollowAfterReconnect = false;
+            _followPausedForTeleport = false;
             _followPlayer = target;
             _followDistance = distance;
             _followExactPosition = false;
@@ -719,7 +758,10 @@ namespace RSBot.XControl
 
         private static void StopFollow()
         {
+            System.Threading.Interlocked.Increment(ref _followCommandVersion);
             _followEnabled = false;
+            _followPausedForTeleport = false;
+            _resumeFollowAfterReconnect = false;
             _followExactPosition = false;
             _followPlayer = string.Empty;
             _hasLastFollowDestination = false;
@@ -770,7 +812,8 @@ namespace RSBot.XControl
 
         private static void UpdateFollow()
         {
-            if (!_followEnabled || !IsConnected || !TryGetFollowTargetPosition(out var leader))
+            if (!_followEnabled || _followPausedForTeleport || !IsConnected ||
+                !TryGetFollowTargetPosition(out var leader))
                 return;
 
             var me = Game.Player.Position;
@@ -1319,14 +1362,9 @@ namespace RSBot.XControl
             if (destination == null)
                 return false;
 
-            StopFollow();
             var destinationId = destination.ID;
             var destinationName = destination.ZoneName;
-            System.Threading.Tasks.Task.Run(() =>
-            {
-                var ok = TeleportByEntity(source, destinationId);
-                Log.Notify($"[xControl] Q{index} -> {destinationName}: {(ok ? "accepted" : "failed")}");
-            });
+            TeleportPreservingFollow(source, destinationId, $"Q{index} -> {destinationName}");
             return true;
         }
 
@@ -1391,15 +1429,85 @@ namespace RSBot.XControl
                 return;
             }
 
-            StopFollow();
             var sourceCodeName = sourceRef.CodeName;
             var destinationId = destinationRef.ID;
             var destinationName = destinationRef.ZoneName;
-            System.Threading.Tasks.Task.Run(() =>
+            TeleportPreservingFollow(source, destinationId,
+                "[xControl] TP " + sourceCodeName + " -> " + destinationName);
+        }
+
+        private static void TeleportPreservingFollow(SpawnedBionic source, uint destinationId, string description)
+        {
+            var preserveFollow = _followEnabled && !string.IsNullOrWhiteSpace(_followPlayer);
+            var followVersion = _followCommandVersion;
+            var teleportPlayer = Game.Player;
+            var teleportProxy = Kernel.Proxy;
+            var startPosition = teleportPlayer != null ? teleportPlayer.Position : default;
+
+            if (preserveFollow)
             {
-                var success = TeleportByEntity(source, destinationId);
-                Log.Notify("[xControl] TP " + sourceCodeName + " -> " + destinationName +
-                           (success ? " accepted." : " failed."));
+                _followPausedForTeleport = true;
+                _hasLastFollowDestination = false;
+                _hasLastFollowPlayerPosition = false;
+            }
+
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                var accepted = false;
+                try
+                {
+                    accepted = TeleportByEntity(source, destinationId);
+
+                    // The teleport acknowledgement can arrive before the character's new
+                    // position is applied. Keep following paused until the map/position has
+                    // actually changed, so movement packets do not fight the teleport.
+                    if (preserveFollow && accepted)
+                    {
+                        var deadline = Environment.TickCount64 + 20000;
+                        while (
+                            Environment.TickCount64 < deadline
+                            && Game.Ready
+                            && ReferenceEquals(Game.Player, teleportPlayer)
+                            && ReferenceEquals(Kernel.Proxy, teleportProxy)
+                        )
+                        {
+                            await System.Threading.Tasks.Task.Delay(250);
+                            var currentPosition = Game.Player.Position;
+                            if (
+                                currentPosition.Region.Id != startPosition.Region.Id
+                                || startPosition.DistanceTo(currentPosition) > 40
+                            )
+                                break;
+                        }
+                    }
+
+                    Log.Notify("[xControl] " + description + (accepted ? " accepted." : " failed."));
+                }
+                catch (Exception error)
+                {
+                    Log.Warn("[xControl] " + description + " failed: " + error.Message);
+                }
+                finally
+                {
+                    // Do not undo an explicit NOTRACE/NOFOLLOW command received while the
+                    // teleport was running, and never resume a previous client session.
+                    if (
+                        preserveFollow
+                        && _followEnabled
+                        && _followCommandVersion == followVersion
+                        && Game.Ready
+                        && ReferenceEquals(Game.Player, teleportPlayer)
+                        && ReferenceEquals(Kernel.Proxy, teleportProxy)
+                    )
+                    {
+                        _followPausedForTeleport = false;
+                        _lastFollowTick = 0;
+                        _hasLastFollowDestination = false;
+                        _hasLastFollowPlayerPosition = false;
+                        _lastFollowProgressTick = 0;
+                        Log.Notify("[xControl] Trace resumed after teleport: " + _followPlayer);
+                    }
+                }
             });
         }
 
@@ -1461,13 +1569,7 @@ namespace RSBot.XControl
                 return;
             }
 
-            StopFollow();
-            System.Threading.Tasks.Task.Run(() =>
-            {
-                var result = TeleportByEntity(source, destinationId);
-                Log.Notify("[xControl] Synced teleport from " + sender + ": " +
-                           (result ? "accepted" : "failed"));
-            });
+            TeleportPreservingFollow(source, destinationId, "Synced teleport from " + sender);
         }
 
         // Called by the passive packet observers below.
