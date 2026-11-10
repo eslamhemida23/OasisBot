@@ -105,6 +105,104 @@ public class BotbaseManager
         }
     }
 
+
+    private static Assembly LoadBotbaseAssembly(string file)
+    {
+        var requestedName = AssemblyName.GetAssemblyName(file);
+        var requestedSimpleName = requestedName.Name;
+
+        var alreadyLoaded = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(loaded =>
+            string.Equals(loaded.GetName().Name, requestedSimpleName, StringComparison.OrdinalIgnoreCase));
+
+        if (alreadyLoaded != null)
+        {
+            var loadedName = alreadyLoaded.GetName();
+            var loadedLocation = GetAssemblyLocation(alreadyLoaded);
+
+            if (!string.Equals(loadedName.FullName, requestedName.FullName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new FileLoadException(
+                    $"Cannot load botbase '{file}'. An assembly with the same name is already loaded " +
+                    $"with a different identity: '{loadedName.FullName}' from '{loadedLocation}'. " +
+                    $"Requested identity: '{requestedName.FullName}'."
+                );
+            }
+
+            if (!IsSameAssemblyFile(file, alreadyLoaded))
+            {
+                throw new FileLoadException(
+                    $"Cannot load botbase '{file}'. An assembly with the same identity is already loaded " +
+                    $"from a different file: '{loadedLocation}'. The files have different contents."
+                );
+            }
+
+            Log.Debug($"Reusing already loaded botbase assembly [{requestedSimpleName}] from [{loadedLocation}].");
+            return alreadyLoaded;
+        }
+
+        try
+        {
+            return Assembly.LoadFrom(file);
+        }
+        catch (FileLoadException error)
+        {
+            // Close the race where another component loads the same assembly after the
+            // initial check but before Assembly.LoadFrom executes.
+            alreadyLoaded = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(loaded =>
+                string.Equals(loaded.GetName().Name, requestedSimpleName, StringComparison.OrdinalIgnoreCase));
+
+            if (alreadyLoaded != null &&
+                string.Equals(alreadyLoaded.GetName().FullName, requestedName.FullName, StringComparison.OrdinalIgnoreCase) &&
+                IsSameAssemblyFile(file, alreadyLoaded))
+            {
+                Log.Debug($"Reusing already loaded botbase assembly [{requestedSimpleName}] after a concurrent load.");
+                return alreadyLoaded;
+            }
+
+            throw new FileLoadException($"Failed to load botbase assembly '{file}'.", error);
+        }
+    }
+
+    private static string GetAssemblyLocation(Assembly assembly)
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(assembly.Location) ? "<unknown location>" : assembly.Location;
+        }
+        catch
+        {
+            return "<unknown location>";
+        }
+    }
+
+    private static bool IsSameAssemblyFile(string file, Assembly loadedAssembly)
+    {
+        try
+        {
+            var loadedPath = GetAssemblyLocation(loadedAssembly);
+            if (loadedPath == "<unknown location>" || !File.Exists(loadedPath))
+                return false;
+
+            if (string.Equals(
+                Path.GetFullPath(file),
+                Path.GetFullPath(loadedPath),
+                StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            using var requestedStream = File.OpenRead(file);
+            using var loadedStream = File.OpenRead(loadedPath);
+
+            var requestedHash = System.Security.Cryptography.SHA256.HashData(requestedStream);
+            var loadedHash = System.Security.Cryptography.SHA256.HashData(loadedStream);
+
+            return requestedHash.SequenceEqual(loadedHash);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     ///     Gets the extensions from assembly.
     /// </summary>
@@ -118,7 +216,7 @@ public class BotbaseManager
         var bots = new Dictionary<string, IBotbase>();
         var views = new Dictionary<string, IBotbaseView>();
 
-        var assembly = Assembly.LoadFrom(file);
+        var assembly = LoadBotbaseAssembly(file);
 
         try
         {
