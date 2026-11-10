@@ -12,6 +12,8 @@
     <RepositoryUrl>https://github.com/Silkroad-Developer-Community/OasisBot</RepositoryUrl>
     <OutputType>Library</OutputType>
     <PlatformTarget>x86</PlatformTarget>
+    <!-- This plugin is loaded dynamically; keep its NuGet runtime assemblies beside the plugin output. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
