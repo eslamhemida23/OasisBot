@@ -158,22 +158,31 @@ public class PluginManager
     {
         var plugins = new Dictionary<string, IPlugin>();
         var views = new Dictionary<string, IPluginView>();
-        ;
 
+        Assembly assembly;
         try
         {
-            var assembly = Assembly.LoadFrom(file);
-            var assemblyTypes = assembly.GetTypes();
+            assembly = Assembly.LoadFrom(file);
+        }
+        catch (Exception error)
+        {
+            Log.Warn($"[PluginManager] Could not load plugin assembly [{file}]: {error}");
+            return (plugins, views);
+        }
 
-            foreach (var type in assemblyTypes.Where(t => t.IsPublic && !t.IsAbstract))
+        var assemblyTypes = GetLoadableTypes(assembly, file);
+        foreach (var type in assemblyTypes.Where(t => t != null && t.IsPublic && !t.IsAbstract))
+        {
+            object instance = null;
+
+            try
             {
-                object instance = null;
-
                 if (typeof(IPlugin).IsAssignableFrom(type))
                 {
                     instance = Activator.CreateInstance(type);
                     var plugin = (IPlugin)instance;
                     plugins[plugin.InternalName] = plugin;
+                    Log.Debug($"[PluginManager] Discovered plugin [{plugin.InternalName}] in [{Path.GetFileName(file)}].");
                 }
 
                 if (typeof(IPluginView).IsAssignableFrom(type))
@@ -181,29 +190,68 @@ public class PluginManager
                     instance ??= Activator.CreateInstance(type);
                     var view = (IPluginView)instance;
                     views[view.InternalName] = view;
+                    Log.Debug($"[PluginManager] Discovered view [{view.InternalName}] in [{Path.GetFileName(file)}].");
                 }
             }
-            if (plugins.Count == 0 && views.Count == 0)
-                return (plugins, views);
-
-            var handlerType = typeof(IPacketHandler);
-            var hookType = typeof(IPacketHook);
-
-            var types = assemblyTypes.Where(p => handlerType.IsAssignableFrom(p) && !p.IsInterface).ToArray();
-
-            foreach (var handler in types)
-                PacketManager.RegisterHandler((IPacketHandler)Activator.CreateInstance(handler));
-
-            types = assemblyTypes.Where(p => hookType.IsAssignableFrom(p) && !p.IsInterface).ToArray();
-
-            foreach (var hook in types)
-                PacketManager.RegisterHook((IPacketHook)Activator.CreateInstance(hook));
+            catch (Exception error)
+            {
+                Log.Warn($"[PluginManager] Could not create plugin/view type [{type.FullName}] from [{file}]: {error}");
+            }
         }
-        catch
+
+        if (plugins.Count == 0 && views.Count == 0)
         {
-            /* ignore, it's an invalid extension */
+            Log.Warn($"[PluginManager] No plugin or view types were found in [{file}].");
+            return (plugins, views);
+        }
+
+        var handlerType = typeof(IPacketHandler);
+        var hookType = typeof(IPacketHook);
+
+        foreach (var type in assemblyTypes.Where(p => p != null && handlerType.IsAssignableFrom(p) && !p.IsInterface))
+        {
+            try
+            {
+                PacketManager.RegisterHandler((IPacketHandler)Activator.CreateInstance(type));
+            }
+            catch (Exception error)
+            {
+                Log.Warn($"[PluginManager] Could not register packet handler [{type.FullName}] from [{file}]: {error}");
+            }
+        }
+
+        foreach (var type in assemblyTypes.Where(p => p != null && hookType.IsAssignableFrom(p) && !p.IsInterface))
+        {
+            try
+            {
+                PacketManager.RegisterHook((IPacketHook)Activator.CreateInstance(type));
+            }
+            catch (Exception error)
+            {
+                Log.Warn($"[PluginManager] Could not register packet hook [{type.FullName}] from [{file}]: {error}");
+            }
         }
 
         return (plugins, views);
+    }
+
+    private static Type[] GetLoadableTypes(Assembly assembly, string file)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException error)
+        {
+            foreach (var loaderError in error.LoaderExceptions.Where(exception => exception != null))
+                Log.Warn($"[PluginManager] Type load warning in [{file}]: {loaderError}");
+
+            return error.Types.Where(type => type != null).ToArray();
+        }
+        catch (Exception error)
+        {
+            Log.Warn($"[PluginManager] Could not inspect types in [{file}]: {error}");
+            return Array.Empty<Type>();
+        }
     }
 }
