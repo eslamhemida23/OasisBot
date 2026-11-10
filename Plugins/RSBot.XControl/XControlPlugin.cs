@@ -1433,7 +1433,7 @@ namespace RSBot.XControl
             var destinationId = destinationRef.ID;
             var destinationName = destinationRef.ZoneName;
             TeleportPreservingFollow(source, destinationId,
-                "[xControl] TP " + sourceCodeName + " -> " + destinationName);
+                "TP " + sourceCodeName + " -> " + destinationName);
         }
 
         private static void TeleportPreservingFollow(SpawnedBionic source, uint destinationId, string description)
