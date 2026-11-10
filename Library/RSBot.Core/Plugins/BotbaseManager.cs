@@ -45,8 +45,17 @@ public class BotbaseManager
 
                 foreach (var bot in result.bots)
                 {
-                    Bots[bot.Key] = bot.Value;
-                    bot.Value.Register();
+                    try
+                    {
+                        Bots[bot.Key] = bot.Value;
+                        bot.Value.Register();
+                        Log.Notify($"[BotbaseManager] Loaded botbase [{bot.Key}] from [{Path.GetFileName(file)}].");
+                    }
+                    catch (Exception error)
+                    {
+                        Bots.Remove(bot.Key);
+                        Log.Error($"[BotbaseManager] Could not register botbase [{bot.Key}] from [{file}]: {error}");
+                    }
                 }
 
                 if (!isHeadless)
@@ -54,11 +63,12 @@ public class BotbaseManager
                     foreach (var view in result.views)
                     {
                         BotsViews[view.Key] = view.Value;
-                        Log.Debug($"Loaded botbase [{view.Value.Name}]");
+                        Log.Debug($"Loaded botbase view [{view.Value.Name}]");
                     }
                 }
             }
 
+            Log.Notify($"[BotbaseManager] Loaded {Bots.Count} botbases and {BotsViews.Count} botbase views.");
             EventManager.FireEvent("OnLoadBotbases");
 
             return true;
@@ -243,18 +253,27 @@ public class BotbaseManager
         var bots = new Dictionary<string, IBotbase>();
         var views = new Dictionary<string, IBotbaseView>();
 
-        var assembly = LoadBotbaseAssembly(file);
+        Assembly assembly;
+        try
+        {
+            assembly = LoadBotbaseAssembly(file);
+        }
+        catch (Exception error)
+        {
+            Log.Error($"[BotbaseManager] Could not load botbase assembly [{file}]: {error}");
+            return (bots, views);
+        }
+
         if (assembly == null)
             return (bots, views);
 
-        try
+        var types = GetLoadableTypes(assembly, file);
+        foreach (var type in types.Where(t => t != null && t.IsPublic && !t.IsAbstract))
         {
-            var types = assembly.GetTypes();
+            object instance = null;
 
-            foreach (var type in types.Where(t => t.IsPublic && !t.IsAbstract))
+            try
             {
-                object instance = null;
-
                 if (typeof(IBotbase).IsAssignableFrom(type))
                 {
                     instance = Activator.CreateInstance(type);
@@ -269,12 +288,35 @@ public class BotbaseManager
                     views[view.Name] = view;
                 }
             }
-        }
-        catch
-        {
-            /* ignore, it's an invalid botbase */
+            catch (Exception error)
+            {
+                Log.Error($"[BotbaseManager] Could not create botbase type [{type.FullName}] from [{file}]: {error}");
+            }
         }
 
+        if (bots.Count == 0 && views.Count == 0)
+            Log.Warn($"[BotbaseManager] No botbase types were found in [{file}].");
+
         return (bots, views);
+    }
+
+    private static Type[] GetLoadableTypes(Assembly assembly, string file)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException error)
+        {
+            foreach (var loaderError in error.LoaderExceptions.Where(exception => exception != null))
+                Log.Warn($"[BotbaseManager] Type load warning in [{file}]: {loaderError}");
+
+            return error.Types.Where(type => type != null).ToArray();
+        }
+        catch (Exception error)
+        {
+            Log.Warn($"[BotbaseManager] Could not inspect types in [{file}]: {error}");
+            return Array.Empty<Type>();
+        }
     }
 }
