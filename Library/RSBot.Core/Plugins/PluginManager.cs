@@ -43,6 +43,18 @@ public class PluginManager
             var files = Directory.GetFiles(InitialDirectory, "*.dll");
             foreach (var file in files)
             {
+                // Older updates may have left a botbase DLL in Data/Plugins.
+                // If the same DLL exists in Data/Bots, leave it for BotbaseManager;
+                // loading it here would lock the wrong copy into the default context.
+                if (HasMatchingBotbaseFile(file))
+                {
+                    Log.Warn(
+                        $"Skipped botbase DLL in plugin directory: [{file}]. " +
+                        "The botbase manager will load the copy from Data/Bots."
+                    );
+                    continue;
+                }
+
                 var (plugins, views) = GetExtensionsFromAssembly(file);
 
                 foreach (var plugin in plugins)
@@ -80,6 +92,28 @@ public class PluginManager
         }
     }
 
+
+    private static bool HasMatchingBotbaseFile(string pluginFile)
+    {
+        var botbaseDirectory = Path.Combine(Kernel.BasePath, "Data", "Bots");
+        var botbaseFile = Path.Combine(botbaseDirectory, Path.GetFileName(pluginFile));
+
+        if (!File.Exists(botbaseFile))
+            return false;
+
+        try
+        {
+            var pluginName = AssemblyName.GetAssemblyName(pluginFile).Name;
+            var botbaseName = AssemblyName.GetAssemblyName(botbaseFile).Name;
+
+            return string.Equals(pluginName, botbaseName, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception error)
+        {
+            Log.Warn($"Could not compare plugin and botbase assemblies [{pluginFile}]: {error.Message}");
+            return false;
+        }
+    }
 
     private static void WriteBootError(string message, Exception error)
     {
