@@ -153,8 +153,11 @@ jobs:
           Write-Host "Packaging $($pluginAssemblies.Count) plugin DLLs from $($pluginProjects.Count) projects."
           Write-Host "Packaging $($botbaseAssemblies.Count) botbase DLLs from $($botbaseProjects.Count) projects."
 
-          Copy-Item "Build/Data/Plugins/*" "$stage/BotUpdate/Data/Plugins/" -Recurse -Force
-          Copy-Item "Build/Data/Bots/*" "$stage/BotUpdate/Data/Bots/" -Recurse -Force
+          # Copy the complete generated Data runtime tree, not just a hand-picked
+          # subset of DLLs. This carries every plugin, botbase, plugin dependency,
+          # and generated runtime data file into the update while leaving user files
+          # outside the package untouched.
+          Copy-Item "Build/Data/*" "$stage/BotUpdate/Data/" -Recurse -Force
 
           # Training is a botbase, not a plugin. Do not ship a stale duplicate
           # under Data/Plugins where it could be loaded before the botbase copy.
