@@ -244,46 +244,84 @@ public partial class Main : UIWindow
     /// </summary>
     private void LoadExtensions()
     {
-        foreach (var plugin in Kernel.PluginManager.Extensions.Values)
-            plugin.Initialize();
-
+        var plugins = Kernel.PluginManager.Extensions;
         var extensions = Kernel
             .PluginManager.ExtensionsViews.OrderBy(entry => entry.Value.Index)
             .ToDictionary(x => x.Key, x => x.Value);
 
+        Log.Notify($"[Main] Loading {plugins.Count} plugins and {extensions.Count} plugin views.");
+
+        // A failure in one optional plugin must not prevent every other plugin tab
+        // from being created.
+        foreach (var plugin in plugins.Values)
+        {
+            try
+            {
+                plugin.Initialize();
+            }
+            catch (Exception error)
+            {
+                Log.Error($"[Main] Plugin initialization failed [{plugin.InternalName}]: {error}");
+            }
+        }
+
         foreach (var extension in extensions.Where(extension => extension.Value.DisplayAsTab))
         {
-            extension.Value.Translate();
+            try
+            {
+                extension.Value.Translate();
 
-            var control = extension.Value.View;
-            control.Name = extension.Value.InternalName;
+                var control = extension.Value.View;
+                if (control == null)
+                {
+                    Log.Warn($"[Main] Plugin view returned no control: {extension.Value.InternalName}.");
+                    continue;
+                }
 
-            control.Text = LanguageManager.GetLangBySpecificKey(
-                extension.Value.InternalName,
-                "DisplayName",
-                extension.Value.DisplayName
-            );
-            control.Enabled = !extension.Value.RequireIngame;
-            control.Dock = DockStyle.Fill;
+                control.Name = extension.Value.InternalName;
+                control.Text = LanguageManager.GetLangBySpecificKey(
+                    extension.Value.InternalName,
+                    "DisplayName",
+                    extension.Value.DisplayName
+                );
+                control.Enabled = !extension.Value.RequireIngame;
+                control.Dock = DockStyle.Fill;
 
-            windowPageControl.Controls.Add(control);
-            if (control.Name == "RSBot.Python" && !GlobalConfig.Get("RSBot.ShowPythonPlugins", true))
-                windowPageControl.Controls.Remove(control);
+                windowPageControl.Controls.Add(control);
+                if (control.Name == "RSBot.Python" && !GlobalConfig.Get("RSBot.ShowPythonPlugins", true))
+                    windowPageControl.Controls.Remove(control);
+            }
+            catch (Exception error)
+            {
+                Log.Error($"[Main] Could not create plugin tab [{extension.Value.InternalName}]: {error}");
+            }
         }
 
         foreach (var extension in extensions.Where(extension => !extension.Value.DisplayAsTab))
         {
-            var menuItemText = LanguageManager.GetLangBySpecificKey(
-                extension.Value.InternalName,
-                "DisplayName",
-                extension.Value.DisplayName
-            );
-            var menuItem = new ToolStripMenuItem(menuItemText) { Enabled = !extension.Value.RequireIngame };
-            menuItem.Click += PluginMenuItem_Click;
-            menuItem.Tag = extension.Value;
+            try
+            {
+                var menuItemText = LanguageManager.GetLangBySpecificKey(
+                    extension.Value.InternalName,
+                    "DisplayName",
+                    extension.Value.DisplayName
+                );
+                var menuItem = new ToolStripMenuItem(menuItemText) { Enabled = !extension.Value.RequireIngame };
+                menuItem.Click += PluginMenuItem_Click;
+                menuItem.Tag = extension.Value;
 
-            menuPlugins.DropDownItems.Add(menuItem);
+                menuPlugins.DropDownItems.Add(menuItem);
+            }
+            catch (Exception error)
+            {
+                Log.Error($"[Main] Could not create plugin menu item [{extension.Value.InternalName}]: {error}");
+            }
         }
+
+        Log.Notify(
+            $"[Main] Plugin UI ready: {windowPageControl.Controls.Count - 1} tab/control pages and " +
+            $"{menuPlugins.DropDownItems.Count} plugin menu items."
+        );
     }
 
     /// <summary>
