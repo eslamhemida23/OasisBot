@@ -12,6 +12,8 @@ namespace RSBot.General
     public class GeneralManager
     {
         private static int _reloginSeq;
+        // Preserve the user's bot-running state across an automatic reconnect.
+        private static int _resumeBotAfterRelogin;
         public static bool IsClientless =>
             Game.Clientless && Kernel.Proxy != null && Kernel.Proxy.IsConnectedToAgentserver;
         public static bool IsConnected => Kernel.Proxy != null && Kernel.Proxy.IsConnectedToAgentserver;
@@ -53,7 +55,21 @@ namespace RSBot.General
         {
             try
             {
-                Kernel.Bot.Stop();
+                // Capture this before Stop() resets Running. Only carry the state into a
+                // reconnect path that will actually log the character in again.
+                var wasBotRunning = Kernel.Bot?.Running == true;
+                var automaticReconnectEnabled =
+                    Game.Clientless || GlobalConfig.Get<bool>("RSBot.General.EnableAutomatedLogin");
+
+                if (wasBotRunning && automaticReconnectEnabled)
+                {
+                    Interlocked.Exchange(ref _resumeBotAfterRelogin, 1);
+                    Log.Notify(
+                        "The bot was running before the disconnect. It will resume after the character logs in again."
+                    );
+                }
+
+                Kernel.Bot?.Stop();
 
                 // Skiped: Cuz managing from ClientlessManager
                 if (Game.Clientless)
@@ -244,8 +260,16 @@ namespace RSBot.General
                 if (useReturnScroll)
                     Game.Player.UseReturnScroll();
 
-                if (startBot)
+                // Consume the saved state only after the new session is confirmed ready.
+                // StartBot remains supported as before; this adds resume-on-reconnect.
+                var resumeBotAfterRelogin = Interlocked.Exchange(ref _resumeBotAfterRelogin, 0) == 1;
+                if (startBot || resumeBotAfterRelogin)
+                {
+                    if (resumeBotAfterRelogin)
+                        Log.Notify("Automatically resuming the bot after reconnect...");
+
                     Kernel.Bot.Start();
+                }
             }
             catch (Exception error)
             {

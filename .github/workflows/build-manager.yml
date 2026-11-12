@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/oasisbot-manager
+      - feature/autostart-bot-after-reconnect
   workflow_dispatch:
 
 permissions:
